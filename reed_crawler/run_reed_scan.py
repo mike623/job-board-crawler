@@ -10,6 +10,7 @@ import yaml
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
 from board_config import board_locations, board_titles, raw_capture_stem, run_stamp
+import salary as salary_parser
 from reed_utils import SearchSpec, dedupe_jobs, parse_jobs_from_markdown, score_job, write_report
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,6 +110,8 @@ async def main() -> None:
             all_jobs.extend(await crawl_search(crawler, spec, run_config, stamp))
             await asyncio.sleep(float(crawl_cfg.get("delay_seconds", cfg.get("delay_seconds", 2))))
 
+    for job in all_jobs:
+        salary_parser.apply_to(job)
     deduped = [score_job(j) for j in dedupe_jobs(all_jobs)]
     deduped = sorted(deduped, key=lambda j: j.score, reverse=True)
 

@@ -14,6 +14,7 @@ import yaml
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
 from board_config import build_board_urls, load_config, raw_capture_stem, run_stamp
+import salary as salary_parser
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "outputs" / "totaljobs"
@@ -39,6 +40,9 @@ class TotaljobsLead:
     raw_block: str
     score: float = 0.0
     score_notes: str = ""
+    salary_min: int | None = None
+    salary_max: int | None = None
+    salary_period: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -251,6 +255,8 @@ async def scan_searches(cfg: dict, limit: int | None = None) -> Path:
             print(f"  status={result.status_code} success={result.success} links={len(leads)}")
             all_leads.extend(leads)
             await asyncio.sleep(float((cfg.get("crawl") or {}).get("delay_seconds", 15)))
+    for lead in all_leads:
+        salary_parser.apply_to(lead)
     deduped = sorted([score_lead(x) for x in dedupe(all_leads)], key=lambda j: j.score, reverse=True)
     REPORTS.mkdir(parents=True, exist_ok=True)
     raw_path = REPORTS / f"totaljobs_raw_{stamp}.json"

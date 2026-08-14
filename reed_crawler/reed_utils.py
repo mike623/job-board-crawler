@@ -51,6 +51,9 @@ class Job:
     raw_block: str
     score: float = 0.0
     score_notes: str = ""
+    salary_min: int | None = None
+    salary_max: int | None = None
+    salary_period: str = ""
 
     def to_dict(self):
         return asdict(self)
