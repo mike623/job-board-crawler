@@ -119,6 +119,86 @@ def browser_config(cfg: dict) -> BrowserConfig:
     )
 
 
+# Badges Totaljobs renders after the posted date; they are not part of the card's data.
+CARD_BADGES = {"featured", "premium", "new", "easy apply", "quick apply", "top employer", "blue chip"}
+
+# Totaljobs prints this in the salary slot when the advert declines to state one.
+SALARY_PLACEHOLDERS = {"unspecified", "not specified", "salary not specified"}
+
+CARD_HEADING = re.compile(r"^## \[(?P<title>.+?)\]\((?P<url>\S+?)\)\s*$")
+
+
+def _card_blocks(markdown: str) -> list[tuple[str, str, list[str]]]:
+    """Split search-result markdown into (title, url, body lines) per job card.
+
+    Logo lines are dropped — they belong to the *next* card, not the one they follow.
+    """
+    lines = [ln.rstrip() for ln in markdown.splitlines()]
+    starts = [i for i, ln in enumerate(lines) if CARD_HEADING.match(ln)]
+    blocks = []
+    for n, i in enumerate(starts):
+        m = CARD_HEADING.match(lines[i])
+        end = starts[n + 1] if n + 1 < len(starts) else len(lines)
+        body = [ln.strip() for ln in lines[i + 1:end] if ln.strip() and not ln.startswith("[![")]
+        blocks.append((m.group("title").strip(), m.group("url").strip(), body))
+    return blocks
+
+
+def parse_search_cards(markdown: str, spec: dict) -> list[TotaljobsLead]:
+    """Parse the search cards themselves, rather than harvesting the page's link graph.
+
+    Every observed card renders exactly four lines before a literal "more", in the order
+    company / location / salary / snippet, then the posted date. Anchoring on "more" means a
+    layout change yields blank fields instead of silently shifting a snippet into the salary.
+    """
+    leads: list[TotaljobsLead] = []
+    for title, url, body in _card_blocks(markdown):
+        url = urljoin(spec["url"], url)
+        if "totaljobs.com/job/" not in url:
+            continue
+        jid = totaljobs_job_id(url)
+        if not jid:
+            continue
+
+        company = location = salary = posted = ""
+        if "more" in body:
+            cut = body.index("more")
+            head, tail = body[:cut], body[cut + 1:]
+            if len(head) >= 1:
+                company = head[0]
+            if len(head) >= 2:
+                location = head[1]
+            # Only trust the salary slot when the card has its full complement of lines;
+            # a short card would otherwise donate its snippet to the salary field.
+            if len(head) >= 4 and head[2].lower() not in SALARY_PLACEHOLDERS:
+                salary = head[2]
+            posted = next((t for t in tail if t.lower() not in CARD_BADGES), "")
+
+        leads.append(TotaljobsLead(
+            source="totaljobs",
+            search_title=spec["title"],
+            search_location=spec["location"],
+            role_title=title or "Unknown role",
+            company=company,
+            salary=salary,
+            location=location,
+            contract="",
+            posted=posted,
+            url=url,
+            job_id=jid,
+            raw_block="\n".join([title, *body]),
+        ))
+    return leads
+
+
+def parse_result(result, spec: dict) -> list[TotaljobsLead]:
+    """Prefer card parsing; fall back to the link graph if the markdown shape is unrecognised."""
+    cards = parse_search_cards(str(result.markdown or ""), spec)
+    if cards:
+        return cards
+    return parse_search_links(result, spec, str(result.markdown or ""))
+
+
 def parse_search_links(result, spec: dict, markdown: str) -> list[TotaljobsLead]:
     links = []
     for group, arr in (result.links or {}).items():
@@ -167,7 +247,7 @@ async def scan_searches(cfg: dict, limit: int | None = None) -> Path:
             stem = raw_capture_stem(f"{slug(spec['title'])}__{slug(spec['location'])}", stamp)
             (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
             (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
-            leads = parse_search_links(result, spec, md)
+            leads = parse_result(result, spec)
             print(f"  status={result.status_code} success={result.success} links={len(leads)}")
             all_leads.extend(leads)
             await asyncio.sleep(float((cfg.get("crawl") or {}).get("delay_seconds", 15)))
