@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
 
-from . import aggregate
+from . import aggregate, pipeline
 
 HERE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(HERE / "templates"))
@@ -24,7 +24,7 @@ app = FastAPI(title="Job Board Crawler", docs_url=None, redoc_url=None)
 CSV_COLUMNS = [
     "board", "job_id", "role_title", "company", "location", "salary",
     "salary_min", "salary_max", "salary_period", "contract", "posted",
-    "first_seen", "last_seen", "times_seen", "live", "url",
+    "first_seen", "last_seen", "times_seen", "live", "in_pipeline", "url",
 ]
 
 
@@ -41,8 +41,16 @@ def landing(request: Request):
     )
 
 
-def _filters(board: str, state: str, min_pay: int | None, q: str, sort: str) -> dict:
-    return {"board": board, "state": state, "min_pay": min_pay, "q": q, "sort": sort}
+def _filters(board: str, state: str, min_pay: int | None, q: str, sort: str, actioned: str = "") -> dict:
+    return {"board": board, "state": state, "min_pay": min_pay, "q": q, "sort": sort, "actioned": actioned}
+
+
+def _annotated_jobs():
+    """Every job, carrying its downstream status when that workspace is readable."""
+    jobs = aggregate.all_jobs()
+    statuses = pipeline.load()
+    pipeline.annotate(jobs, statuses)
+    return jobs, bool(statuses)
 
 
 @app.get("/jobs")
@@ -53,9 +61,11 @@ def job_list(
     min_pay: int | None = None,
     q: str = "",
     sort: str = Query("first_seen"),
+    actioned: str = "",
 ):
-    jobs = aggregate.select(aggregate.all_jobs(), board=board, state=state,
-                            min_pay=min_pay, query=q, sort=sort)
+    every, has_pipeline = _annotated_jobs()
+    jobs = aggregate.select(every, board=board, state=state, min_pay=min_pay,
+                            query=q, sort=sort, actioned=actioned)
     return templates.TemplateResponse(
         request,
         "jobs.html",
@@ -63,8 +73,9 @@ def job_list(
             "jobs": jobs,
             "boards": aggregate.BOARDS,
             "sorts": list(aggregate.SORTS),
-            "filters": _filters(board, state, min_pay, q, sort),
+            "filters": _filters(board, state, min_pay, q, sort, actioned),
             "shown": len(jobs),
+            "has_pipeline": has_pipeline,
         },
     )
 
@@ -76,10 +87,12 @@ def job_detail(request: Request, board: str, job_id: str):
     job = aggregate.find_job(board, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="unknown job")
+    statuses = pipeline.load()
+    pipeline.annotate([job], statuses)
     return templates.TemplateResponse(
         request,
         "job_detail.html",
-        {"job": job, "sightings": aggregate.sightings(board, job_id)},
+        {"job": job, "sightings": aggregate.sightings(board, job_id), "has_pipeline": bool(statuses)},
     )
 
 
@@ -104,10 +117,11 @@ def run_log(request: Request, board: str = "", page: int = 1, per_page: int = 50
 
 @app.get("/export.csv")
 def export_csv(board: str = "", state: str = "live", min_pay: int | None = None,
-               q: str = "", sort: str = "first_seen"):
+               q: str = "", sort: str = "first_seen", actioned: str = ""):
     """The current filter, as a spreadsheet."""
-    jobs = aggregate.select(aggregate.all_jobs(), board=board, state=state,
-                            min_pay=min_pay, query=q, sort=sort)
+    every, _ = _annotated_jobs()
+    jobs = aggregate.select(every, board=board, state=state, min_pay=min_pay,
+                            query=q, sort=sort, actioned=actioned)
 
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=CSV_COLUMNS, extrasaction="ignore")
@@ -120,6 +134,7 @@ def export_csv(board: str = "", state: str = "live", min_pay: int | None = None,
             "last_seen": job.last_seen,
             "times_seen": job.times_seen,
             "live": "yes" if job.live else "no",
+            "in_pipeline": "yes" if (job.pipeline and job.pipeline.present) else "no",
             **{k: job.fields.get(k, "") for k in
                ("role_title", "company", "location", "salary", "salary_min",
                 "salary_max", "salary_period", "contract", "posted", "url")},

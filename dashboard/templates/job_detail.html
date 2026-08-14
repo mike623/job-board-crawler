@@ -33,6 +33,13 @@
     <tr><th>Contract</th><td>{{ job.get('contract') or '—' }}</td></tr>
     <tr><th>Posted</th><td>{{ job.get('posted') or '—' }}</td></tr>
     <tr><th>Found under</th><td class="muted">{{ job.get('search_title') }} / {{ job.get('search_location') }}</td></tr>
+    {% if has_pipeline %}
+    <tr><th>Downstream</th><td>
+      {%- if job.pipeline and job.pipeline.done %}<span class="good">actioned</span>
+      {%- elif job.pipeline and job.pipeline.present %}imported, not yet ticked off
+      {%- else %}<span class="muted">not in the pipeline</span>{% endif -%}
+    </td></tr>
+    {% endif %}
     <tr><th>Job id</th><td><code>{{ job.job_id }}</code></td></tr>
     <tr><th>Source</th><td>
       {% if job.get('url') %}<a href="{{ job.get('url') }}" target="_blank" rel="noreferrer">view on {{ job.board }} &nearr;</a>

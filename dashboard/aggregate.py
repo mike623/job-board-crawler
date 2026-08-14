@@ -34,6 +34,7 @@ class Job:
     times_seen: int
     live: bool
     fields: dict = field(default_factory=dict)
+    pipeline: object = None  # set by dashboard.pipeline.annotate when the workspace exists
 
     def get(self, name, default=""):
         return self.fields.get(name) or default
@@ -241,9 +242,13 @@ _ASCENDING = {"company", "role"}
 
 
 def select(jobs: list[Job], board: str = "", state: str = "", min_pay: int | None = None,
-           query: str = "", sort: str = "first_seen") -> list[Job]:
+           query: str = "", sort: str = "first_seen", actioned: str = "") -> list[Job]:
     """Apply the filters and ordering the job list offers."""
     chosen = jobs
+    if actioned == "no":
+        chosen = [j for j in chosen if not (j.pipeline and j.pipeline.present)]
+    elif actioned == "yes":
+        chosen = [j for j in chosen if j.pipeline and j.pipeline.present]
     if board:
         chosen = [j for j in chosen if j.board == board]
     if state == "live":
