@@ -105,6 +105,17 @@ def _infer_period(amount: int) -> str:
     return "year" if amount >= _ANNUAL_FLOOR else ""
 
 
+def sort_key(lead) -> tuple[int, int]:
+    """Order leads by advertised pay, for use with `reverse=True`.
+
+    Adverts stating no figure sort last rather than as zero. Day and hourly rates are compared
+    on their face value, so they land below annual figures — converting between periods would
+    mean inventing a working-day count the advert never stated.
+    """
+    top = getattr(lead, "salary_max", None) or getattr(lead, "salary_min", None)
+    return (0 if top is None else 1, top or 0)
+
+
 def apply_to(lead) -> None:
     """Populate a lead's structured salary fields from its salary text, in place."""
     for key, value in parse_salary(getattr(lead, "salary", "")).items():

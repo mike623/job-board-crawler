@@ -33,8 +33,6 @@ class TalentLead:
     url: str
     job_id: str
     raw_block: str
-    score: float = 0.0
-    score_notes: str = ""
     salary_min: int | None = None
     salary_max: int | None = None
     salary_period: str = ""
@@ -59,31 +57,6 @@ def talent_job_id(url: str) -> str:
     # Stable fallback for search-card discovery dedupe when Talent uses slug URLs.
     path = parsed.path.strip("/")
     return slug(path or url, 96)
-
-
-def score_lead(job: TalentLead) -> TalentLead:
-    text = " ".join([job.role_title, job.company, job.location, job.contract, job.salary, job.raw_block]).lower()
-    score = 0.0
-    notes = []
-    for p in ["senior", "lead", "principal", "staff", "full stack", "backend", "typescript", "node", "react", "aws", "platform", "architecture", "remote", "hybrid"]:
-        if p in text:
-            score += 0.4
-            notes.append(f"+{p}")
-    for n in ["junior", "graduate", "apprentice", "placement", "no experience", "wordpress", "php", "onsite only", "salesforce"]:
-        if n in text:
-            score -= 0.8
-            notes.append(f"-{n}")
-    # Bonus when the posting actually mentions the location we searched for, or is remote.
-    target = (job.search_location or "").lower().strip()
-    if (target and target in text) or "remote" in text:
-        score += 0.8
-        notes.append("+location")
-    if re.search(r"£\s*(7[0-9]|8[0-9]|9[0-9]|1\d\d)[,k]", text):
-        score += 1.0
-        notes.append("+salary")
-    job.score = round(score, 2)
-    job.score_notes = ", ".join(notes)
-    return job
 
 
 def dedupe(leads: list[TalentLead]) -> list[TalentLead]:
@@ -241,7 +214,7 @@ async def scan(cfg: dict, limit: int | None = None) -> Path:
             await asyncio.sleep(float(board.get("delay_seconds", (cfg.get("crawl") or {}).get("delay_seconds", 45))))
     for lead in all_leads:
         salary_parser.apply_to(lead)
-    deduped = sorted([score_lead(x) for x in dedupe(all_leads)], key=lambda j: j.score, reverse=True)
+    deduped = sorted(dedupe(all_leads), key=salary_parser.sort_key, reverse=True)
     REPORTS.mkdir(parents=True, exist_ok=True)
     raw_path = REPORTS / f"talent_raw_{stamp}.json"
     dedup_path = REPORTS / f"talent_deduped_{stamp}.json"
