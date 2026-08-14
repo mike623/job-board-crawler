@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse
 
+from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
 from board_config import build_board_urls, load_config, jittered, raw_capture_stem, run_stamp
@@ -103,6 +104,68 @@ def crawl_config(cfg: dict) -> CrawlerRunConfig:
     )
 
 
+# Indeed's search cards live in the HTML, not the markdown: card links are pagead click
+# wrappers carrying no job id, so only 1 of 16 observed cards could be identified from the
+# markdown at all. The HTML carries a data-jk on every card plus semantic test ids.
+CARD_SELECTOR = "div.job_seen_beacon"
+
+# Attribute chips mix employment terms with perks; only the former belong in `contract`.
+CONTRACT_TERMS = ("permanent", "full-time", "part-time", "fixed term", "temporary",
+                  "contract", "apprenticeship", "internship", "graduate", "freelance", "volunteer")
+
+
+def _text(node) -> str:
+    return node.get_text(" ", strip=True) if node else ""
+
+
+def parse_search_cards(html: str, spec: dict) -> list[IndeedLead]:
+    """Parse Indeed's search cards out of the page HTML.
+
+    Everything worth having is behind a stable test id, so this needs none of the positional
+    guessing the other boards require. Indeed shows no posting date on its cards, so `posted`
+    stays empty rather than being invented.
+    """
+    if not html:
+        return []
+    soup = BeautifulSoup(html, "html.parser")
+    leads: list[IndeedLead] = []
+    for card in soup.select(CARD_SELECTOR):
+        anchor = card.select_one("[data-jk]")
+        jid = (anchor or {}).get("data-jk", "") if anchor else ""
+        if not jid:
+            continue
+
+        salary = _text(card.select_one(".salary-snippet-container"))
+        contract = ""
+        for chip in card.select("[data-testid='attribute_snippet_testid']"):
+            label = _text(chip)
+            if label and label != salary and any(t in label.lower() for t in CONTRACT_TERMS):
+                contract = label
+                break
+
+        leads.append(IndeedLead(
+            source="indeed",
+            search_title=spec["title"],
+            search_location=spec["location"],
+            role_title=_text(anchor) or "Unknown role",
+            company=_text(card.select_one("[data-testid='company-name']")),
+            salary=salary,
+            location=_text(card.select_one("[data-testid='text-location']")),
+            contract=contract,
+            posted="",
+            url=canonical_job_url(f"https://uk.indeed.com/viewjob?jk={jid}"),
+            job_id=jid,
+            raw_block=_text(card)[:600],
+        ))
+    return leads
+
+
+def parse_result(result, spec: dict) -> list[IndeedLead]:
+    """Prefer card parsing; fall back to the link graph if the markup is unrecognised."""
+    cards = parse_search_cards(result.html or "", spec)
+    return cards if cards else parse_links(result, spec)
+
+
 def parse_links(result, spec: dict) -> list[IndeedLead]:
     leads = []
     for _, arr in (result.links or {}).items():
@@ -144,7 +207,7 @@ async def scan(cfg: dict, limit: int | None = None, allow_disabled: bool = False
                 stem = raw_capture_stem(f"{slug(spec['title'])}__{slug(spec['location'])}", stamp)
                 (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
                 (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
-                leads = parse_links(r, spec)
+                leads = parse_result(r, spec)
                 print(f"  status={r.status_code} {health.record(r)} leads={len(leads)}")
                 all_leads.extend(leads)
                 await asyncio.sleep(jittered(float((cfg.get("crawl") or {}).get("delay_seconds", 15))))
