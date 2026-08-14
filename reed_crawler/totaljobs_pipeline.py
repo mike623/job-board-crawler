@@ -15,6 +15,7 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
 from board_config import build_board_urls, load_config, raw_capture_stem, run_stamp
 import salary as salary_parser
+import scan_lock
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "outputs" / "totaljobs"
@@ -211,32 +212,33 @@ async def scan_searches(cfg: dict, limit: int | None = None) -> Path:
     if not board.get("enabled"):
         raise SystemExit("Totaljobs is disabled in config.yml")
     RAW.mkdir(parents=True, exist_ok=True)
-    stamp = run_stamp()
-    all_leads: list[TotaljobsLead] = []
-    async with AsyncWebCrawler(config=browser_config(cfg)) as crawler:
-        for spec in specs:
-            print(f"Crawling Totaljobs {spec['title']!r} / {spec['location']!r}: {spec['url']}")
-            result = await crawler.arun(url=spec["url"], config=crawl_config(cfg))
-            md = str(result.markdown or "")
-            html = result.html or ""
-            stem = raw_capture_stem(f"{slug(spec['title'])}__{slug(spec['location'])}", stamp)
-            (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
-            (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
-            leads = parse_result(result, spec)
-            print(f"  status={result.status_code} success={result.success} links={len(leads)}")
-            all_leads.extend(leads)
-            await asyncio.sleep(float((cfg.get("crawl") or {}).get("delay_seconds", 15)))
-    for lead in all_leads:
-        salary_parser.apply_to(lead)
-    deduped = sorted(dedupe(all_leads), key=salary_parser.sort_key, reverse=True)
-    REPORTS.mkdir(parents=True, exist_ok=True)
-    raw_path = REPORTS / f"totaljobs_raw_{stamp}.json"
-    dedup_path = REPORTS / f"totaljobs_deduped_{stamp}.json"
-    raw_path.write_text(json.dumps([x.to_dict() for x in all_leads], indent=2), encoding="utf-8")
-    dedup_path.write_text(json.dumps([x.to_dict() for x in deduped], indent=2), encoding="utf-8")
-    print(f"Totaljobs raw={len(all_leads)} deduped={len(deduped)}")
-    print(f"Deduped JSON: {dedup_path}")
-    return dedup_path
+    with scan_lock.hold("totaljobs"):
+        stamp = run_stamp()
+        all_leads: list[TotaljobsLead] = []
+        async with AsyncWebCrawler(config=browser_config(cfg)) as crawler:
+            for spec in specs:
+                print(f"Crawling Totaljobs {spec['title']!r} / {spec['location']!r}: {spec['url']}")
+                result = await crawler.arun(url=spec["url"], config=crawl_config(cfg))
+                md = str(result.markdown or "")
+                html = result.html or ""
+                stem = raw_capture_stem(f"{slug(spec['title'])}__{slug(spec['location'])}", stamp)
+                (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
+                (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
+                leads = parse_result(result, spec)
+                print(f"  status={result.status_code} success={result.success} links={len(leads)}")
+                all_leads.extend(leads)
+                await asyncio.sleep(float((cfg.get("crawl") or {}).get("delay_seconds", 15)))
+        for lead in all_leads:
+            salary_parser.apply_to(lead)
+        deduped = sorted(dedupe(all_leads), key=salary_parser.sort_key, reverse=True)
+        REPORTS.mkdir(parents=True, exist_ok=True)
+        raw_path = REPORTS / f"totaljobs_raw_{stamp}.json"
+        dedup_path = REPORTS / f"totaljobs_deduped_{stamp}.json"
+        raw_path.write_text(json.dumps([x.to_dict() for x in all_leads], indent=2), encoding="utf-8")
+        dedup_path.write_text(json.dumps([x.to_dict() for x in deduped], indent=2), encoding="utf-8")
+        print(f"Totaljobs raw={len(all_leads)} deduped={len(deduped)}")
+        print(f"Deduped JSON: {dedup_path}")
+        return dedup_path
 
 
 def latest_deduped() -> Path:
