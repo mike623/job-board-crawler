@@ -1,0 +1,25 @@
+[project]
+name = "job-board-crawler"
+version = "0.1.0"
+description = "Low-volume Crawl4AI discovery pipelines for Reed, Totaljobs, Indeed and Talent.com."
+requires-python = ">=3.11"
+dependencies = [
+  "crawl4ai>=0.9.2",
+  "pyyaml>=6.0",
+  "beautifulsoup4>=4.12",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["reed_crawler"]
+
+[tool.pytest.ini_options]
+pythonpath = ["reed_crawler"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"

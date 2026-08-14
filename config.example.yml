@@ -1,0 +1,116 @@
+# Job-board crawl configuration.
+# Copy to config.yml and edit for your own search. config.yml is gitignored.
+# Search-card pages are discovery only; only full-JD records are exported downstream.
+
+profile:
+  target_salary_gbp: 60000
+  minimum_salary_gbp: 55000
+  preferred_locations:
+    - remote uk
+    - london
+
+search:
+  titles:
+    primary:
+      - senior software engineer
+      - backend developer
+    secondary:
+      - lead software engineer
+      - typescript developer
+    exploratory:
+      - platform engineer
+  locations:
+    core:
+      - london
+      - manchester
+    extended:
+      - birmingham
+
+boards:
+  reed:
+    enabled: true
+    title_groups:
+      - primary
+    location_groups:
+      - core
+    proximity: 50
+    max_pages_per_run: 8   # Slow mode: fewer search pages per run to reduce ban risk.
+    full_jd:
+      enabled: true
+      top_n: 10            # Slow mode: fewer detail pages per run.
+      delay_seconds: 12    # Slow mode: wait between full-JD page crawls.
+
+  totaljobs:
+    enabled: true
+    title_groups:
+      - primary
+    location_groups:
+      - core
+    radius: 30
+    max_pages_per_run: 4
+    full_jd:
+      enabled: true
+      top_n: 5
+      delay_seconds: 20
+
+  indeed:
+    # Built/probed, but disabled by default. Indeed is high-friction and some
+    # postings are generic/non-live adverts, hence reject_phrases below.
+    enabled: false
+    title_groups:
+      - primary
+    location_groups:
+      - core
+    radius: 50
+    max_pages_per_run: 2
+    full_jd:
+      enabled: true
+      top_n: 3
+      delay_seconds: 30
+    reject_phrases:
+      - not represent a live vacancy
+      - register your interest
+      - talent pool
+      - no experience needed
+      - training programme
+
+  talent:
+    # Very low-volume Talent.com search-card discovery.
+    # Talent.com can return an unhydrated shell for /jobs?k=...&l=...; supplying a
+    # real result `id` from a browser session forces the result list to hydrate.
+    enabled: true
+    max_pages_per_run: 2
+    delay_seconds: 60
+    search_params:
+      - k: Senior Software Engineer
+        l: london
+        id: "000000000000000000"  # Replace with a live Talent.com result id.
+      - k: Lead Software Engineer
+        l: london
+
+crawl:
+  delay_seconds: 15              # Slow mode: wait between search pages.
+  page_timeout_ms: 60000
+  delay_before_return_html_seconds: 10
+  scan_full_page: true
+  scroll_delay: 1.5
+  headless: true
+
+career_ops:
+  # Downstream workspace that receives full-JD markdown + pipeline entries.
+  # Overridable at runtime with the CAREER_OPS_WORKSPACE env var.
+  workspace: ../career-ops
+  import_only_evidence_level: full_jd
+
+# Backward-compatible flat keys for older scripts. New code should prefer sections above.
+titles:
+  - senior software engineer
+  - backend developer
+locations:
+  - london
+  - manchester
+proximity: 50
+max_pages_per_run: 16
+delay_seconds: 2
+crawl_full_job_pages: false
+top_n_full_pages: 30
