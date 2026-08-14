@@ -83,6 +83,25 @@ def job_detail(request: Request, board: str, job_id: str):
     )
 
 
+@app.get("/runs")
+def run_log(request: Request, board: str = "", page: int = 1, per_page: int = 50):
+    every = aggregate.runs(board)
+    shown, page, pages = aggregate.page_of(every, page, max(1, min(per_page, 200)))
+    return templates.TemplateResponse(
+        request,
+        "runs.html",
+        {
+            "runs": shown,
+            "boards": aggregate.BOARDS,
+            "board": board,
+            "page": page,
+            "pages": pages,
+            "total": len(every),
+            "per_page": per_page,
+        },
+    )
+
+
 @app.get("/export.csv")
 def export_csv(board: str = "", state: str = "live", min_pay: int | None = None,
                q: str = "", sort: str = "first_seen"):

@@ -166,6 +166,44 @@ def summarise_all(outputs: Path = OUTPUTS) -> list[BoardSummary]:
     return [summarise_board(board, outputs) for board in BOARDS]
 
 
+@dataclass
+class Run:
+    board: str
+    stamp: str
+    jobs: int
+    searches: int
+    healthy: bool
+
+    @property
+    def display_time(self) -> str:
+        date, time = self.stamp.split("_")
+        return f"{date} {time[:2]}:{time[2:4]}"
+
+
+def runs(board: str = "", outputs: Path = OUTPUTS) -> list[Run]:
+    """Every recorded scan, most recent first.
+
+    A run finding nothing is flagged: the crawler cannot always tell a broken fetch from a
+    search with no matches, and a board quietly returning zero is what this view is for.
+    """
+    found: list[Run] = []
+    for name in ([board] if board else BOARDS):
+        for stamp, path in deduped_reports(name, outputs):
+            rows = _read(path)
+            searches = {(r.get("search_title"), r.get("search_location")) for r in rows}
+            found.append(Run(board=name, stamp=stamp, jobs=len(rows),
+                             searches=len(searches), healthy=bool(rows)))
+    return sorted(found, key=lambda r: r.stamp, reverse=True)
+
+
+def page_of(items: list, page: int, per_page: int) -> tuple[list, int, int]:
+    """Slice a list into a page, returning the slice, the clamped page and the page count."""
+    pages = max(1, -(-len(items) // per_page))
+    page = min(max(page, 1), pages)
+    start = (page - 1) * per_page
+    return items[start:start + per_page], page, pages
+
+
 def all_jobs(outputs: Path = OUTPUTS) -> list[Job]:
     jobs: list[Job] = []
     for board in BOARDS:

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% set nav = 'runs' %}
+{% block title %}Runs — Job Board Crawler{% endblock %}
+
+{% macro page_link(n, label) %}
+  <a href="/runs?board={{ board }}&per_page={{ per_page }}&page={{ n }}">{{ label }}</a>
+{% endmacro %}
+
+{% block content %}
+<form method="get" action="/runs" class="filters">
+  <select name="board">
+    <option value="">all boards</option>
+    {% for b in boards %}<option value="{{ b }}" {{ 'selected' if board == b }}>{{ b }}</option>{% endfor %}
+  </select>
+  <input type="hidden" name="per_page" value="{{ per_page }}">
+  <button type="submit">Apply</button>
+  <a href="/runs">reset</a>
+</form>
+
+<p class="muted" style="font-size:12.5px">
+  {{ total }} scan{{ '' if total == 1 else 's' }} recorded &middot; page {{ page }} of {{ pages }}
+</p>
+
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>When</th><th>Board</th><th class="num">Searches</th><th class="num">Jobs found</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for run in runs %}
+    <tr>
+      <td>{{ run.display_time }}</td>
+      <td class="muted">{{ run.board }}</td>
+      <td class="num">{{ run.searches }}</td>
+      <td class="num">{{ run.jobs }}</td>
+      <td>
+        {% if not run.healthy %}<span class="bad">found nothing</span>
+        {% else %}<a href="/jobs?board={{ run.board }}&state=">view jobs</a>{% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="muted">No scans recorded.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if pages > 1 %}
+<p style="margin-top:14px; display:flex; gap:14px; align-items:center">
+  {% if page > 1 %}{{ page_link(page - 1, '← newer') }}{% endif %}
+  <span class="muted" style="font-size:12.5px">{{ page }} / {{ pages }}</span>
+  {% if page < pages %}{{ page_link(page + 1, 'older →') }}{% endif %}
+</p>
+{% endif %}
+{% endblock %}

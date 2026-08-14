@@ -74,8 +74,9 @@
 <header>
   <h1>Job Board Crawler</h1>
   <nav>
-    <a href="/" class="{{ 'on' if page == 'home' }}">Overview</a>
-    <a href="/jobs" class="{{ 'on' if page == 'jobs' }}">Jobs</a>
+    <a href="/" class="{{ 'on' if nav == 'home' }}">Overview</a>
+    <a href="/jobs" class="{{ 'on' if nav == 'jobs' }}">Jobs</a>
+    <a href="/runs" class="{{ 'on' if nav == 'runs' }}">Runs</a>
   </nav>
 </header>
 <main>
