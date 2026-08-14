@@ -1,3 +1,5 @@
+"""SUNSET. A hand-run importer for two hardcoded URLs, from when full job descriptions were
+exported downstream. Kept for reference only — see CLAUDE.md."""
 from __future__ import annotations
 
 import asyncio
