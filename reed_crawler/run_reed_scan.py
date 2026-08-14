@@ -3,14 +3,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin
 
 import yaml
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
-from board_config import board_locations, board_titles
+from board_config import board_locations, board_titles, raw_capture_stem, run_stamp
 from reed_utils import SearchSpec, dedupe_jobs, parse_jobs_from_markdown, score_job, write_report
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +33,7 @@ def build_specs(cfg: dict) -> list[SearchSpec]:
     return [SearchSpec(t, loc, int(cfg.get("proximity", 50))) for t in cfg["titles"] for loc in cfg["locations"]]
 
 
-async def crawl_search(crawler: AsyncWebCrawler, spec: SearchSpec, run_config: CrawlerRunConfig) -> list:
+async def crawl_search(crawler: AsyncWebCrawler, spec: SearchSpec, run_config: CrawlerRunConfig, stamp: str) -> list:
     print(f"Crawling {spec.title!r} / {spec.location!r}: {spec.url}")
     result = await crawler.arun(url=spec.url, config=run_config)
     md = str(result.markdown or "")
@@ -51,9 +50,10 @@ async def crawl_search(crawler: AsyncWebCrawler, spec: SearchSpec, run_config: C
             })
 
     RAW.mkdir(parents=True, exist_ok=True)
-    (RAW / f"{spec.name}.md").write_text(md, encoding="utf-8")
-    (RAW / f"{spec.name}.html").write_text(html, encoding="utf-8")
-    (RAW / f"{spec.name}.links.json").write_text(json.dumps(links, indent=2), encoding="utf-8")
+    stem = raw_capture_stem(spec.name, stamp)
+    (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
+    (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
+    (RAW / f"{stem}.links.json").write_text(json.dumps(links, indent=2), encoding="utf-8")
 
     if not result.success:
         print(f"  FAILED status={result.status_code} error={result.error_message}")
@@ -102,17 +102,17 @@ async def main() -> None:
         screenshot=False,
     )
 
+    stamp = run_stamp()
     all_jobs = []
     async with AsyncWebCrawler(config=browser_config) as crawler:
         for spec in specs:
-            all_jobs.extend(await crawl_search(crawler, spec, run_config))
+            all_jobs.extend(await crawl_search(crawler, spec, run_config, stamp))
             await asyncio.sleep(float(crawl_cfg.get("delay_seconds", cfg.get("delay_seconds", 2))))
 
     deduped = [score_job(j) for j in dedupe_jobs(all_jobs)]
     deduped = sorted(deduped, key=lambda j: j.score, reverse=True)
 
     REPORTS.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     raw_json = REPORTS / f"reed_raw_{stamp}.json"
     dedup_json = REPORTS / f"reed_deduped_{stamp}.json"
     report_md = REPORTS / f"reed_report_{stamp}.md"

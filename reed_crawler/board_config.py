@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -18,6 +19,20 @@ def slug_text(s: str) -> str:
 
 def load_config(path: str | Path = ROOT / "config.yml") -> dict:
     return yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+
+
+def run_stamp() -> str:
+    """One timestamp per scan run, shared by that run's raw captures and its reports."""
+    return datetime.now().strftime("%Y-%m-%d_%H%M%S")
+
+
+def raw_capture_stem(name: str, stamp: str) -> str:
+    """Filename stem for a raw capture.
+
+    The stamp is what stops a scan overwriting the previous scan's capture of the same search,
+    and it ties a capture back to the report written by the same run.
+    """
+    return f"{name}__{stamp}"
 
 
 def values_from_groups(search_cfg: dict, kind: str, groups: list[str]) -> list[str]:

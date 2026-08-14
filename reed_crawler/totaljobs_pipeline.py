@@ -13,7 +13,7 @@ from urllib.parse import urljoin
 import yaml
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
-from board_config import build_board_urls, load_config
+from board_config import build_board_urls, load_config, raw_capture_stem, run_stamp
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "outputs" / "totaljobs"
@@ -156,6 +156,7 @@ async def scan_searches(cfg: dict, limit: int | None = None) -> Path:
     if not board.get("enabled"):
         raise SystemExit("Totaljobs is disabled in config.yml")
     RAW.mkdir(parents=True, exist_ok=True)
+    stamp = run_stamp()
     all_leads: list[TotaljobsLead] = []
     async with AsyncWebCrawler(config=browser_config(cfg)) as crawler:
         for spec in specs:
@@ -163,16 +164,15 @@ async def scan_searches(cfg: dict, limit: int | None = None) -> Path:
             result = await crawler.arun(url=spec["url"], config=crawl_config(cfg))
             md = str(result.markdown or "")
             html = result.html or ""
-            name = f"{slug(spec['title'])}__{slug(spec['location'])}"
-            (RAW / f"{name}.md").write_text(md, encoding="utf-8")
-            (RAW / f"{name}.html").write_text(html, encoding="utf-8")
+            stem = raw_capture_stem(f"{slug(spec['title'])}__{slug(spec['location'])}", stamp)
+            (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
+            (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
             leads = parse_search_links(result, spec, md)
             print(f"  status={result.status_code} success={result.success} links={len(leads)}")
             all_leads.extend(leads)
             await asyncio.sleep(float((cfg.get("crawl") or {}).get("delay_seconds", 15)))
     deduped = sorted([score_lead(x) for x in dedupe(all_leads)], key=lambda j: j.score, reverse=True)
     REPORTS.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     raw_path = REPORTS / f"totaljobs_raw_{stamp}.json"
     dedup_path = REPORTS / f"totaljobs_deduped_{stamp}.json"
     raw_path.write_text(json.dumps([x.to_dict() for x in all_leads], indent=2), encoding="utf-8")

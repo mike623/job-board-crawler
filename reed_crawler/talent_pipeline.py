@@ -5,13 +5,12 @@ import asyncio
 import json
 import re
 from dataclasses import asdict, dataclass
-from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
-from board_config import build_board_urls, load_config
+from board_config import build_board_urls, load_config, raw_capture_stem, run_stamp
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "outputs" / "talent"
@@ -221,6 +220,7 @@ async def scan(cfg: dict, limit: int | None = None) -> Path:
     if limit:
         specs = specs[:limit]
     RAW.mkdir(parents=True, exist_ok=True)
+    stamp = run_stamp()
     all_leads: list[TalentLead] = []
     async with AsyncWebCrawler(config=browser_config(cfg)) as crawler:
         for spec in specs:
@@ -228,16 +228,15 @@ async def scan(cfg: dict, limit: int | None = None) -> Path:
             r = await crawler.arun(url=spec["url"], config=crawl_config(cfg))
             md = str(r.markdown or "")
             html = r.html or ""
-            name = f"{slug(spec['title'])}__{slug(spec['location'])}"
-            (RAW / f"{name}.md").write_text(md, encoding="utf-8")
-            (RAW / f"{name}.html").write_text(html, encoding="utf-8")
+            stem = raw_capture_stem(f"{slug(spec['title'])}__{slug(spec['location'])}", stamp)
+            (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
+            (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
             leads = parse_result(r, spec)
             print(f"  status={r.status_code} success={r.success} leads={len(leads)}")
             all_leads.extend(leads)
             await asyncio.sleep(float(board.get("delay_seconds", (cfg.get("crawl") or {}).get("delay_seconds", 45))))
     deduped = sorted([score_lead(x) for x in dedupe(all_leads)], key=lambda j: j.score, reverse=True)
     REPORTS.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     raw_path = REPORTS / f"talent_raw_{stamp}.json"
     dedup_path = REPORTS / f"talent_deduped_{stamp}.json"
     raw_path.write_text(json.dumps([x.to_dict() for x in all_leads], indent=2), encoding="utf-8")
