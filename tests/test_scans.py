@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import sys
+
+import pytest
+from fastapi.testclient import TestClient
+
+from dashboard import scans
+from dashboard.app import app
+
+
+@pytest.fixture(autouse=True)
+def isolated_state(tmp_path, monkeypatch):
+    """Keep every test off the real outputs/state."""
+    monkeypatch.setattr(scans, "STATE", tmp_path)
+    monkeypatch.setattr(scans, "RUNS_FILE", tmp_path / "runs.json")
+    monkeypatch.setattr(scans, "LOG_DIR", tmp_path / "logs")
+    return tmp_path
+
+
+def record(**overrides):
+    base = {"id": "r1", "board": "reed", "status": scans.RUNNING, "started": "2026-08-14T09:00:00"}
+    return {**base, **overrides}
+
+
+def write_records(state, records):
+    (state / "runs.json").write_text(json.dumps(records), encoding="utf-8")
+
+
+# ---- persistence ----
+
+def test_history_is_newest_first_and_survives_a_restart(isolated_state):
+    write_records(isolated_state, [record(id="old"), record(id="new")])
+
+    assert [r.id for r in scans.history()] == ["new", "old"]
+
+
+def test_history_tolerates_unknown_keys_from_an_older_format(isolated_state):
+    write_records(isolated_state, [record(id="r1", something_removed="x")])
+
+    assert scans.history()[0].id == "r1"
+
+
+def test_a_missing_or_corrupt_runs_file_yields_no_history(isolated_state):
+    assert scans.history() == []
+
+    (isolated_state / "runs.json").write_text("{ not json", encoding="utf-8")
+    assert scans.history() == []
+
+
+# ---- reconciliation ----
+
+def test_a_run_whose_process_is_gone_is_marked_interrupted(isolated_state):
+    write_records(isolated_state, [record(status=scans.RUNNING, pid=2 ** 30)])
+
+    scans.reconcile()
+
+    assert scans.history()[0].status == scans.INTERRUPTED
+
+
+def test_a_run_whose_process_is_alive_is_left_running(isolated_state):
+    import os
+    write_records(isolated_state, [record(status=scans.RUNNING, pid=os.getpid())])
+
+    scans.reconcile()
+
+    assert scans.history()[0].status == scans.RUNNING
+
+
+def test_finished_runs_are_untouched_by_reconciliation(isolated_state):
+    write_records(isolated_state, [record(status=scans.DONE, exit_code=0, pid=2 ** 30)])
+
+    scans.reconcile()
+
+    assert scans.history()[0].status == scans.DONE
+
+
+# ---- running a scan ----
+
+def test_a_scan_records_its_outcome_and_captures_output(isolated_state, monkeypatch):
+    monkeypatch.setitem(scans.COMMANDS, "reed", ["-c", "print('hello from the scan')"])
+
+    async def go():
+        run = await scans.scans.start("reed")
+        for _ in range(200):
+            current = scans.get(run.id)
+            if current and current.status != scans.RUNNING:
+                return current
+            await asyncio.sleep(0.05)
+        pytest.fail("the scan never finished")
+
+    finished = asyncio.run(go())
+
+    assert finished.status == scans.DONE
+    assert finished.exit_code == 0
+    assert "hello from the scan" in finished.log_path.read_text()
+
+
+def test_a_failing_scan_is_recorded_as_failed(isolated_state, monkeypatch):
+    monkeypatch.setitem(scans.COMMANDS, "reed", ["-c", "import sys; sys.exit(2)"])
+
+    async def go():
+        run = await scans.scans.start("reed")
+        for _ in range(200):
+            current = scans.get(run.id)
+            if current and current.status != scans.RUNNING:
+                return current
+            await asyncio.sleep(0.05)
+        pytest.fail("the scan never finished")
+
+    assert asyncio.run(go()).status == scans.FAILED
+
+
+def test_a_scan_blocked_by_the_board_lock_is_recorded_as_busy_not_failed(isolated_state, monkeypatch):
+    # Exit 75 is what the scan entrypoints use when another process holds the board.
+    monkeypatch.setitem(scans.COMMANDS, "reed", ["-c", f"import sys; sys.exit({scans.BUSY_EXIT_CODE})"])
+
+    async def go():
+        run = await scans.scans.start("reed")
+        for _ in range(200):
+            current = scans.get(run.id)
+            if current and current.status != scans.RUNNING:
+                return current
+            await asyncio.sleep(0.05)
+        pytest.fail("the scan never finished")
+
+    assert asyncio.run(go()).status == scans.BUSY
+
+
+def test_an_unknown_board_cannot_be_started(isolated_state):
+    with pytest.raises(KeyError):
+        asyncio.run(scans.scans.start("myspace"))
+
+
+# ---- routes ----
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+
+def test_only_scanning_is_exposed():
+    # Enriching and exporting write outside this project; they stay at the terminal.
+    assert set(scans.COMMANDS) == {"reed", "totaljobs", "talent", "indeed"}
+    for argv in scans.COMMANDS.values():
+        assert "enrich" not in argv and "export" not in argv and "run" not in argv
+
+
+def test_starting_an_unknown_board_is_a_404(client):
+    assert client.post("/scan/myspace").status_code == 404
+
+
+def test_a_board_already_being_scanned_is_refused(client, isolated_state):
+    write_records(isolated_state, [record(board="reed", status=scans.RUNNING)])
+
+    assert client.post("/scan/reed").status_code == 409
+
+
+def test_an_unknown_run_is_a_404(client):
+    assert client.get("/scan/nope").status_code == 404
+
+
+def test_the_stream_reports_an_unknown_run_rather_than_hanging(isolated_state):
+    async def collect():
+        return [chunk async for chunk in scans.scans.stream("nope")]
+
+    assert "unknown run" in "".join(asyncio.run(collect()))

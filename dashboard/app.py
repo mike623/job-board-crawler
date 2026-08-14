@@ -7,18 +7,27 @@ from __future__ import annotations
 
 import csv
 import io
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
-from . import aggregate, pipeline
+from . import aggregate, pipeline, scans
+from .scan_lock_view import board_lock_state
 
 HERE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(HERE / "templates"))
 
-app = FastAPI(title="Job Board Crawler", docs_url=None, redoc_url=None)
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # A dashboard killed mid-scan leaves records showing as running for ever.
+    scans.reconcile()
+    yield
+
+
+app = FastAPI(title="Job Board Crawler", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 
 CSV_COLUMNS = [
@@ -37,7 +46,37 @@ def landing(request: Request):
         {
             "summaries": summaries,
             "totals": aggregate.totals(summaries),
+            "scan_history": scans.history(10),
+            "locks": {b: board_lock_state(b) for b in aggregate.BOARDS},
+            "scannable": list(scans.COMMANDS),
         },
+    )
+
+
+@app.post("/scan/{board}")
+async def start_scan(board: str):
+    if board not in scans.COMMANDS:
+        raise HTTPException(status_code=404, detail="unknown board")
+    if scans.scans.board_is_running(board):
+        raise HTTPException(status_code=409, detail=f"{board} is already being scanned")
+    run = await scans.scans.start(board)
+    return RedirectResponse(f"/scan/{run.id}", status_code=303)
+
+
+@app.get("/scan/{run_id}")
+def scan_view(request: Request, run_id: str):
+    run = scans.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="unknown run")
+    return templates.TemplateResponse(request, "scan.html", {"run": run})
+
+
+@app.get("/scan/{run_id}/log")
+async def scan_log(run_id: str):
+    return StreamingResponse(
+        scans.scans.stream(run_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

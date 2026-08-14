@@ -47,6 +47,47 @@
 </table>
 </div>
 
+<h2>Run a scan</h2>
+<div class="tiles">
+{% for board in scannable %}
+  <form method="post" action="/scan/{{ board }}" class="tile" style="min-width:0; padding:9px 12px">
+    {% set busy = locks.get(board) %}
+    <button type="submit" {{ 'disabled' if busy }}
+            style="font:inherit; padding:4px 10px; border-radius:7px; border:1px solid var(--line);
+                   background:var(--bg); color:var(--fg); cursor:{{ 'not-allowed' if busy else 'pointer' }}">
+      {{ board }}
+    </button>
+    {% if busy %}<div class="muted" style="font-size:11px; margin-top:5px">scanning (pid {{ busy.pid }})</div>{% endif %}
+  </form>
+{% endfor %}
+</div>
+<p class="muted" style="font-size:12.5px; max-width:70ch">
+  Scans take minutes and keep running if you navigate away. A board already being scanned —
+  by the cron, a terminal, or another trigger — cannot be started again.
+</p>
+
+{% if scan_history %}
+<h2>Recent scans</h2>
+<div class="scroll">
+<table style="max-width:720px">
+  <thead><tr><th>Started</th><th>Board</th><th>Status</th><th>Trigger</th><th></th></tr></thead>
+  <tbody>
+  {% for run in scan_history %}
+    <tr>
+      <td>{{ run.display_started }}</td>
+      <td class="muted">{{ run.board }}</td>
+      <td class="{{ 'good' if run.status == 'done' else ('warn' if run.status in ('busy', 'interrupted') else ('bad' if run.status == 'failed' else '')) }}">
+        {{ run.status }}{% if run.exit_code %} <span class="muted">({{ run.exit_code }})</span>{% endif %}
+      </td>
+      <td class="muted">{{ run.trigger }}</td>
+      <td><a href="/scan/{{ run.id }}">log</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
 <p class="muted" style="margin-top:22px; font-size:12.5px; max-width:70ch">
   A job counts as <strong>live</strong> when it appeared in the most recent scan of a search it
   was found under, rather than merely the board's most recent scan &mdash; runs are often partial,
