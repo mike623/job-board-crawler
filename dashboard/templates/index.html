@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% set page = 'home' %}
+
+{% block content %}
+<h2>All boards</h2>
+<div class="tiles">
+  <div class="tile"><b>{{ totals.known }}</b><span>jobs known</span></div>
+  <div class="tile"><b class="good">{{ totals.live }}</b><span>still live</span></div>
+  <div class="tile"><b class="muted">{{ totals.vanished }}</b><span>vanished</span></div>
+  <div class="tile"><b>{{ totals.new }}</b><span>new in last run</span></div>
+  <div class="tile"><b>{{ totals.runs }}</b><span>scans recorded</span></div>
+</div>
+
+<h2>By board</h2>
+<div class="scroll">
+<table>
+  <thead>
+    <tr>
+      <th>Board</th>
+      <th class="num">Known</th>
+      <th class="num">Live</th>
+      <th class="num">Vanished</th>
+      <th class="num">New</th>
+      <th class="num">Scans</th>
+      <th>Last scan</th>
+      <th class="num">Found then</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for s in summaries %}
+    <tr>
+      <td>{{ s.board }}</td>
+      {% if s.scanned %}
+        <td class="num">{{ s.known }}</td>
+        <td class="num good">{{ s.live }}</td>
+        <td class="num muted">{{ s.vanished }}</td>
+        <td class="num">{{ s.new or '' }}</td>
+        <td class="num">{{ s.runs }}</td>
+        <td>{{ s.last_run_display }}</td>
+        <td class="num">{{ s.last_run_jobs }}</td>
+      {% else %}
+        <td class="never" colspan="7">never scanned</td>
+      {% endif %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<p class="muted" style="margin-top:22px; font-size:12.5px; max-width:70ch">
+  A job counts as <strong>live</strong> when it appeared in the most recent scan of a search it
+  was found under, rather than merely the board's most recent scan &mdash; runs are often partial,
+  and judging against the last run alone would report most of the board as vanished.
+</p>
+{% endblock %}
