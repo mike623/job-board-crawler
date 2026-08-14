@@ -53,6 +53,20 @@
   .bad  { color: var(--bad); }
   .never { color: var(--muted); font-style: italic; }
   .scroll { overflow-x: auto; }
+  a { color: inherit; }
+  tbody a { text-decoration: none; }
+  tbody a:hover { text-decoration: underline; }
+  .filters {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--panel); margin-bottom: 12px;
+  }
+  .filters input, .filters select, .filters button {
+    font: inherit; padding: 5px 8px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  }
+  .filters button { cursor: pointer; font-weight: 550; }
+  .filters label { color: var(--muted); font-size: 13px; }
 </style>
 {% block head %}{% endblock %}
 </head>
@@ -61,6 +75,7 @@
   <h1>Job Board Crawler</h1>
   <nav>
     <a href="/" class="{{ 'on' if page == 'home' }}">Overview</a>
+    <a href="/jobs" class="{{ 'on' if page == 'jobs' }}">Jobs</a>
   </nav>
 </header>
 <main>

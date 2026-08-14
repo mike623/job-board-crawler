@@ -166,6 +166,65 @@ def summarise_all(outputs: Path = OUTPUTS) -> list[BoardSummary]:
     return [summarise_board(board, outputs) for board in BOARDS]
 
 
+def all_jobs(outputs: Path = OUTPUTS) -> list[Job]:
+    jobs: list[Job] = []
+    for board in BOARDS:
+        jobs.extend(jobs_for_board(board, outputs))
+    return jobs
+
+
+def find_job(board: str, job_id: str, outputs: Path = OUTPUTS) -> Job | None:
+    for job in jobs_for_board(board, outputs):
+        if job.job_id == job_id:
+            return job
+    return None
+
+
+def sightings(board: str, job_id: str, outputs: Path = OUTPUTS) -> list[str]:
+    """Every run stamp in which this job was seen, most recent first."""
+    seen = []
+    for stamp, path in deduped_reports(board, outputs):
+        if any(str(row.get("job_id") or "") == job_id for row in _read(path)):
+            seen.append(stamp)
+    return sorted(seen, reverse=True)
+
+
+SORTS = {
+    "first_seen": lambda j: j.first_seen,
+    "last_seen": lambda j: j.last_seen,
+    "pay": lambda j: (j.pay is not None, j.pay or 0),
+    "company": lambda j: (j.company or "￿").lower(),
+    "role": lambda j: j.role_title.lower(),
+    "times_seen": lambda j: j.times_seen,
+}
+
+# Ascending reads more naturally for names; everything else is most-interesting-first.
+_ASCENDING = {"company", "role"}
+
+
+def select(jobs: list[Job], board: str = "", state: str = "", min_pay: int | None = None,
+           query: str = "", sort: str = "first_seen") -> list[Job]:
+    """Apply the filters and ordering the job list offers."""
+    chosen = jobs
+    if board:
+        chosen = [j for j in chosen if j.board == board]
+    if state == "live":
+        chosen = [j for j in chosen if j.live]
+    elif state == "vanished":
+        chosen = [j for j in chosen if not j.live]
+    if min_pay:
+        # An advert with no figure cannot be shown to clear a floor, so it is excluded.
+        chosen = [j for j in chosen if (j.pay or 0) >= min_pay]
+    if query:
+        needle = query.lower()
+        chosen = [j for j in chosen
+                  if needle in j.role_title.lower()
+                  or needle in j.company.lower()
+                  or needle in str(j.get("location")).lower()]
+    key = SORTS.get(sort, SORTS["first_seen"])
+    return sorted(chosen, key=key, reverse=sort not in _ASCENDING)
+
+
 def totals(summaries: list[BoardSummary]) -> dict:
     return {
         "known": sum(s.known for s in summaries),
