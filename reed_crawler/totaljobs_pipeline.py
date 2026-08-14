@@ -15,6 +15,7 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
 from board_config import build_board_urls, load_config, raw_capture_stem, run_stamp
 import salary as salary_parser
+import scan_health
 import scan_lock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -214,6 +215,7 @@ async def scan_searches(cfg: dict, limit: int | None = None) -> Path:
     RAW.mkdir(parents=True, exist_ok=True)
     with scan_lock.hold("totaljobs"):
         stamp = run_stamp()
+        health = scan_health.RunHealth("totaljobs")
         all_leads: list[TotaljobsLead] = []
         async with AsyncWebCrawler(config=browser_config(cfg)) as crawler:
             for spec in specs:
@@ -225,7 +227,7 @@ async def scan_searches(cfg: dict, limit: int | None = None) -> Path:
                 (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
                 (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
                 leads = parse_result(result, spec)
-                print(f"  status={result.status_code} success={result.success} links={len(leads)}")
+                print(f"  status={result.status_code} {health.record(result)} leads={len(leads)}")
                 all_leads.extend(leads)
                 await asyncio.sleep(float((cfg.get("crawl") or {}).get("delay_seconds", 15)))
         for lead in all_leads:
@@ -238,6 +240,7 @@ async def scan_searches(cfg: dict, limit: int | None = None) -> Path:
         dedup_path.write_text(json.dumps([x.to_dict() for x in deduped], indent=2), encoding="utf-8")
         print(f"Totaljobs raw={len(all_leads)} deduped={len(deduped)}")
         print(f"Deduped JSON: {dedup_path}")
+        health.finish()
         return dedup_path
 
 

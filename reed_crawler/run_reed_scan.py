@@ -11,6 +11,7 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
 from board_config import board_locations, board_titles, raw_capture_stem, run_stamp
 import salary as salary_parser
+import scan_health
 import scan_lock
 from reed_utils import SearchSpec, dedupe_jobs, parse_jobs_from_markdown, write_report
 
@@ -35,7 +36,8 @@ def build_specs(cfg: dict) -> list[SearchSpec]:
     return [SearchSpec(t, loc, int(cfg.get("proximity", 50))) for t in cfg["titles"] for loc in cfg["locations"]]
 
 
-async def crawl_search(crawler: AsyncWebCrawler, spec: SearchSpec, run_config: CrawlerRunConfig, stamp: str) -> list:
+async def crawl_search(crawler: AsyncWebCrawler, spec: SearchSpec, run_config: CrawlerRunConfig, stamp: str,
+                       health: scan_health.RunHealth) -> list:
     print(f"Crawling {spec.title!r} / {spec.location!r}: {spec.url}")
     result = await crawler.arun(url=spec.url, config=run_config)
     md = str(result.markdown or "")
@@ -57,12 +59,14 @@ async def crawl_search(crawler: AsyncWebCrawler, spec: SearchSpec, run_config: C
     (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
     (RAW / f"{stem}.links.json").write_text(json.dumps(links, indent=2), encoding="utf-8")
 
-    if not result.success:
-        print(f"  FAILED status={result.status_code} error={result.error_message}")
+    outcome = health.record(result)
+    if outcome != scan_health.OK:
+        # An empty body is a broken fetch, not a search with no matches — see scan_health.
+        print(f"  {outcome} status={result.status_code} markdown={len(md)} error={result.error_message}")
         return []
 
     jobs = parse_jobs_from_markdown(md, spec)
-    print(f"  OK status={result.status_code} markdown={len(md)} jobs={len(jobs)}")
+    print(f"  {outcome} status={result.status_code} markdown={len(md)} jobs={len(jobs)}")
     return jobs
 
 
@@ -106,10 +110,11 @@ async def main() -> None:
 
     with scan_lock.hold("reed"):
         stamp = run_stamp()
+        health = scan_health.RunHealth("reed")
         all_jobs = []
         async with AsyncWebCrawler(config=browser_config) as crawler:
             for spec in specs:
-                all_jobs.extend(await crawl_search(crawler, spec, run_config, stamp))
+                all_jobs.extend(await crawl_search(crawler, spec, run_config, stamp, health))
                 await asyncio.sleep(float(crawl_cfg.get("delay_seconds", cfg.get("delay_seconds", 2))))
 
         for job in all_jobs:
@@ -132,6 +137,7 @@ async def main() -> None:
         print(f"Raw JSON: {raw_json}")
         print(f"Deduped JSON: {dedup_json}")
         print(f"Report: {report_md}")
+        health.finish()
 
 
 if __name__ == "__main__":
