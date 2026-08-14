@@ -29,6 +29,10 @@ search:
 boards:
   reed:
     enabled: true
+    # Egress identities for this board. Empty means one: everything leaves from this
+    # machine's IP, so only one worker may crawl this host at a time. Adding proxies here
+    # raises that limit — splitting by search term does not, since the rate limit is per IP.
+    proxies: []
     title_groups:
       - primary
     location_groups:

@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
-from board_config import build_board_urls, load_config, raw_capture_stem, run_stamp
+from board_config import build_board_urls, load_config, jittered, raw_capture_stem, run_stamp
 import salary as salary_parser
 import scan_health
 import scan_lock
@@ -147,7 +147,7 @@ async def scan(cfg: dict, limit: int | None = None, allow_disabled: bool = False
                 leads = parse_links(r, spec)
                 print(f"  status={r.status_code} {health.record(r)} leads={len(leads)}")
                 all_leads.extend(leads)
-                await asyncio.sleep(float((cfg.get("crawl") or {}).get("delay_seconds", 15)))
+                await asyncio.sleep(jittered(float((cfg.get("crawl") or {}).get("delay_seconds", 15))))
         for lead in all_leads:
             salary_parser.apply_to(lead)
         deduped = sorted(dedupe(all_leads), key=salary_parser.sort_key, reverse=True)

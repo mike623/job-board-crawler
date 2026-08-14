@@ -60,10 +60,19 @@
     {% if busy %}<div class="muted" style="font-size:11px; margin-top:5px">scanning (pid {{ busy.pid }})</div>{% endif %}
   </form>
 {% endfor %}
+  <form method="post" action="/scan-all" class="tile" style="min-width:0; padding:9px 12px">
+    <button type="submit"
+            style="font:inherit; padding:4px 10px; border-radius:7px; border:1px solid var(--line);
+                   background:var(--bg); color:var(--fg); cursor:pointer; font-weight:600">
+      all enabled
+    </button>
+  </form>
 </div>
 <p class="muted" style="font-size:12.5px; max-width:70ch">
   Scans take minutes and keep running if you navigate away. A board already being scanned —
   by the cron, a terminal, or another trigger — cannot be started again.
+  Scanning all boards runs them concurrently, but never more than one crawl per host: they are
+  separate sites, so this costs no extra requests to any of them.
 </p>
 
 {% if scan_history %}

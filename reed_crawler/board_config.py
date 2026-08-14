@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -113,6 +114,17 @@ def build_board_urls(cfg: dict, board: str) -> list[dict]:
             rows.append({"board": board, "title": title, "location": location, "url": url})
     max_pages = board_cfg.get("max_pages_per_run")
     return rows[: int(max_pages)] if max_pages else rows
+
+
+def jittered(seconds: float, spread: float = 0.35) -> float:
+    """A delay near `seconds`, varied by up to `spread` either way.
+
+    A perfectly regular cadence is itself a bot signal: humans are irregular. The average rate
+    is unchanged, so this costs nothing against the throttling the delays exist to respect.
+    """
+    if seconds <= 0:
+        return 0.0
+    return seconds * random.uniform(1 - spread, 1 + spread)
 
 
 if __name__ == "__main__":

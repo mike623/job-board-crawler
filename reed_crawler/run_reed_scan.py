@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 import yaml
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
-from board_config import board_locations, board_titles, raw_capture_stem, run_stamp
+from board_config import board_locations, board_titles, jittered, raw_capture_stem, run_stamp
 import salary as salary_parser
 import scan_health
 import scan_lock
@@ -115,7 +115,7 @@ async def main() -> None:
         async with AsyncWebCrawler(config=browser_config) as crawler:
             for spec in specs:
                 all_jobs.extend(await crawl_search(crawler, spec, run_config, stamp, health))
-                await asyncio.sleep(float(crawl_cfg.get("delay_seconds", cfg.get("delay_seconds", 2))))
+                await asyncio.sleep(jittered(float(crawl_cfg.get("delay_seconds", cfg.get("delay_seconds", 2)))))
 
         for job in all_jobs:
             salary_parser.apply_to(job)

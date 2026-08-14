@@ -188,6 +188,19 @@ class Scans:
             _record(run)
             self.processes.pop(run.id, None)
 
+    async def start_and_wait(self, board: str, trigger: str = "pool") -> ScanRun:
+        """Start a scan and return once it has finished.
+
+        The pool needs this: a slot released the moment the subprocess spawns would bound
+        nothing at all.
+        """
+        run = await self.start(board, trigger)
+        while True:
+            current = get(run.id)
+            if current is None or current.status != RUNNING:
+                return current or run
+            await asyncio.sleep(0.2)
+
     async def stream(self, run_id: str):
         """Server-sent events carrying the log as it is written.
 

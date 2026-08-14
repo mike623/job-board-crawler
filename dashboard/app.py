@@ -5,6 +5,7 @@ renders them; it holds no database and no cache.
 """
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 from contextlib import asynccontextmanager
@@ -14,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
-from . import aggregate, pipeline, scans
+from . import aggregate, pipeline, pool, scans
 from .scan_lock_view import board_lock_state
 
 HERE = Path(__file__).resolve().parent
@@ -61,6 +62,20 @@ async def start_scan(board: str):
         raise HTTPException(status_code=409, detail=f"{board} is already being scanned")
     run = await scans.scans.start(board)
     return RedirectResponse(f"/scan/{run.id}", status_code=303)
+
+
+@app.post("/scan-all")
+async def start_all():
+    """Scan every enabled board at once, bounded per host."""
+    config = pool.load_config()
+    boards = [b for b in pool.enabled_boards(config, list(scans.COMMANDS))
+              if not scans.scans.board_is_running(b)]
+    if not boards:
+        raise HTTPException(status_code=409, detail="every enabled board is already being scanned")
+    worker_pool = pool.Pool(start_scan=scans.scans.start_and_wait, max_workers=len(boards))
+    asyncio.create_task(worker_pool.run(boards))
+    # The queue is visible on the overview; each scan gets its own log page.
+    return RedirectResponse("/", status_code=303)
 
 
 @app.get("/scan/{run_id}")
