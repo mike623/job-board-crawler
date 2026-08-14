@@ -82,3 +82,17 @@ Stages communicate **only through timestamped JSON files in `outputs/`**. Each s
 ## Cron
 
 This project is driven from an external daily cron script that runs Reed, Totaljobs, and Talent **scan only** — no enrich, no export. Changes to scan CLI flags or output paths can break that caller, which is not in this repo.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `mike623/job-board-crawler`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
