@@ -89,12 +89,17 @@
         {{ run.status }}{% if run.exit_code %} <span class="muted">({{ run.exit_code }})</span>{% endif %}
       </td>
       <td class="muted">{{ run.trigger }}</td>
-      <td><a href="/scan/{{ run.id }}">log</a></td>
+      <td>{% if run.has_log %}<a href="/scan/{{ run.id }}">log</a>{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
+<p class="muted" style="font-size:12.5px; max-width:70ch">
+  Every scan is listed here whatever started it — the trigger column says which. Only scans
+  started from the dashboard have a captured log; the rest print to whatever ran them.
+  <a href="/runs">Full history &rarr;</a>
+</p>
 {% endif %}
 
 <p class="muted" style="margin-top:22px; font-size:12.5px; max-width:70ch">

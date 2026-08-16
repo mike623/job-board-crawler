@@ -19,7 +19,7 @@ def test_runs_are_listed_newest_first_across_boards(tmp_path):
     write_run(tmp_path, "totaljobs", "2026-08-03_090000", [job("2")])
     write_run(tmp_path, "reed", "2026-08-02_090000", [job("3")])
 
-    found = aggregate.runs(outputs=tmp_path)
+    found = aggregate.runs(outputs=tmp_path, recorded=[])
 
     assert [r.stamp for r in found] == ["2026-08-03_090000", "2026-08-02_090000", "2026-08-01_090000"]
     assert found[0].board == "totaljobs"
@@ -30,7 +30,7 @@ def test_a_run_records_how_many_searches_it_covered(tmp_path):
         job("1", location="leeds"), job("2", location="leeds"), job("3", location="manchester"),
     ])
 
-    (run,) = aggregate.runs(outputs=tmp_path)
+    (run,) = aggregate.runs(outputs=tmp_path, recorded=[])
 
     assert run.jobs == 3
     assert run.searches == 2
@@ -39,7 +39,7 @@ def test_a_run_records_how_many_searches_it_covered(tmp_path):
 def test_a_run_that_found_nothing_is_flagged(tmp_path):
     write_run(tmp_path, "reed", "2026-08-01_090000", [])
 
-    (run,) = aggregate.runs(outputs=tmp_path)
+    (run,) = aggregate.runs(outputs=tmp_path, recorded=[])
 
     assert run.jobs == 0
     assert run.healthy is False
@@ -49,13 +49,13 @@ def test_runs_can_be_filtered_to_one_board(tmp_path):
     write_run(tmp_path, "reed", "2026-08-01_090000", [job("1")])
     write_run(tmp_path, "talent", "2026-08-01_090000", [job("2")])
 
-    assert {r.board for r in aggregate.runs("talent", tmp_path)} == {"talent"}
+    assert {r.board for r in aggregate.runs("talent", tmp_path, recorded=[])} == {"talent"}
 
 
 def test_the_display_time_is_readable(tmp_path):
     write_run(tmp_path, "reed", "2026-08-14_143005", [job("1")])
 
-    assert aggregate.runs(outputs=tmp_path)[0].display_time == "2026-08-14 14:30"
+    assert aggregate.runs(outputs=tmp_path, recorded=[])[0].display_time == "2026-08-14 14:30"
 
 
 # ---- paging ----

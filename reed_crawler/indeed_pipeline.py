@@ -15,6 +15,7 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
 from board_config import build_board_urls, load_config, jittered, raw_capture_stem, run_stamp
 import salary as salary_parser
+import run_record
 import scan_health
 import scan_lock
 
@@ -196,33 +197,35 @@ async def scan(cfg: dict, limit: int | None = None, allow_disabled: bool = False
     RAW.mkdir(parents=True, exist_ok=True)
     with scan_lock.hold("indeed"):
         stamp = run_stamp()
-        health = scan_health.RunHealth("indeed")
-        all_leads = []
-        async with AsyncWebCrawler(config=browser_config(cfg)) as crawler:
-            for spec in specs:
-                print(f"Crawling Indeed {spec['title']!r} / {spec['location']!r}: {spec['url']}")
-                r = await crawler.arun(url=spec["url"], config=crawl_config(cfg))
-                md = str(r.markdown or "")
-                html = r.html or ""
-                stem = raw_capture_stem(f"{slug(spec['title'])}__{slug(spec['location'])}", stamp)
-                (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
-                (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
-                leads = parse_result(r, spec)
-                print(f"  status={r.status_code} {health.record(r)} leads={len(leads)}")
-                all_leads.extend(leads)
-                await asyncio.sleep(jittered(float((cfg.get("crawl") or {}).get("delay_seconds", 15))))
-        for lead in all_leads:
-            salary_parser.apply_to(lead)
-        deduped = sorted(dedupe(all_leads), key=salary_parser.sort_key, reverse=True)
-        REPORTS.mkdir(parents=True, exist_ok=True)
-        raw_path = REPORTS / f"indeed_raw_{stamp}.json"
-        dedup_path = REPORTS / f"indeed_deduped_{stamp}.json"
-        raw_path.write_text(json.dumps([x.to_dict() for x in all_leads], indent=2), encoding="utf-8")
-        dedup_path.write_text(json.dumps([x.to_dict() for x in deduped], indent=2), encoding="utf-8")
-        print(f"Indeed raw={len(all_leads)} deduped={len(deduped)}")
-        print(f"Deduped JSON: {dedup_path}")
-        health.finish()
-        return dedup_path
+        with run_record.record("indeed", stamp) as findings:
+            health = scan_health.RunHealth("indeed")
+            all_leads = []
+            async with AsyncWebCrawler(config=browser_config(cfg)) as crawler:
+                for spec in specs:
+                    print(f"Crawling Indeed {spec['title']!r} / {spec['location']!r}: {spec['url']}")
+                    r = await crawler.arun(url=spec["url"], config=crawl_config(cfg))
+                    md = str(r.markdown or "")
+                    html = r.html or ""
+                    stem = raw_capture_stem(f"{slug(spec['title'])}__{slug(spec['location'])}", stamp)
+                    (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
+                    (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
+                    leads = parse_result(r, spec)
+                    print(f"  status={r.status_code} {health.record(r)} leads={len(leads)}")
+                    all_leads.extend(leads)
+                    await asyncio.sleep(jittered(float((cfg.get("crawl") or {}).get("delay_seconds", 15))))
+            for lead in all_leads:
+                salary_parser.apply_to(lead)
+            deduped = sorted(dedupe(all_leads), key=salary_parser.sort_key, reverse=True)
+            REPORTS.mkdir(parents=True, exist_ok=True)
+            raw_path = REPORTS / f"indeed_raw_{stamp}.json"
+            dedup_path = REPORTS / f"indeed_deduped_{stamp}.json"
+            raw_path.write_text(json.dumps([x.to_dict() for x in all_leads], indent=2), encoding="utf-8")
+            dedup_path.write_text(json.dumps([x.to_dict() for x in deduped], indent=2), encoding="utf-8")
+            print(f"Indeed raw={len(all_leads)} deduped={len(deduped)}")
+            findings.update(jobs=len(deduped), searches=len(specs))
+            print(f"Deduped JSON: {dedup_path}")
+            health.finish()
+            return dedup_path
 
 
 def latest(pattern: str) -> Path:

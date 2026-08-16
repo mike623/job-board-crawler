@@ -66,10 +66,7 @@ class BoardSummary:
 
     @property
     def last_run_display(self) -> str:
-        if not self.last_run:
-            return "never"
-        date, time = self.last_run.split("_")
-        return f"{date} {time[:2]}:{time[2:4]}"
+        return format_stamp(self.last_run) if self.last_run else "never"
 
 
 def deduped_reports(board: str, outputs: Path = OUTPUTS) -> list[tuple[str, Path]]:
@@ -167,6 +164,18 @@ def summarise_all(outputs: Path = OUTPUTS) -> list[BoardSummary]:
     return [summarise_board(board, outputs) for board in BOARDS]
 
 
+def format_stamp(stamp: str) -> str:
+    """Render a run stamp for a human.
+
+    Tolerates the shape records used before scans carried the report stamp, so old rows still
+    read as dates rather than as identifiers.
+    """
+    digits = "".join(c for c in stamp if c.isdigit())
+    if len(digits) >= 12:
+        return f"{digits[0:4]}-{digits[4:6]}-{digits[6:8]} {digits[8:10]}:{digits[10:12]}"
+    return stamp
+
+
 @dataclass
 class Run:
     board: str
@@ -174,27 +183,59 @@ class Run:
     jobs: int
     searches: int
     healthy: bool
+    status: str = ""
+    trigger: str = ""
+    run_id: str = ""
+    has_log: bool = False
 
     @property
     def display_time(self) -> str:
-        date, time = self.stamp.split("_")
-        return f"{date} {time[:2]}:{time[2:4]}"
+        return format_stamp(self.stamp)
 
 
-def runs(board: str = "", outputs: Path = OUTPUTS) -> list[Run]:
-    """Every recorded scan, most recent first.
+def runs(board: str = "", outputs: Path = OUTPUTS, recorded: list | None = None) -> list[Run]:
+    """Every scan, most recent first, whatever started it.
 
-    A run finding nothing is flagged: the crawler cannot always tell a broken fetch from a
-    search with no matches, and a board quietly returning zero is what this view is for.
+    Two things are known about a scan and neither is sufficient alone. The report files say
+    what was found, but a scan that failed wrote none. The run records say how a scan ended,
+    but only exist for scans run since that was added. So they are merged on (board, stamp).
     """
-    found: list[Run] = []
+    found: dict[tuple, Run] = {}
     for name in ([board] if board else BOARDS):
         for stamp, path in deduped_reports(name, outputs):
             rows = _read(path)
             searches = {(r.get("search_title"), r.get("search_location")) for r in rows}
-            found.append(Run(board=name, stamp=stamp, jobs=len(rows),
-                             searches=len(searches), healthy=bool(rows)))
-    return sorted(found, key=lambda r: r.stamp, reverse=True)
+            found[(name, stamp)] = Run(board=name, stamp=stamp, jobs=len(rows),
+                                       searches=len(searches), healthy=bool(rows))
+
+    for record in (recorded if recorded is not None else _recorded_runs()):
+        name = record.board
+        stamp = record.id[:-(len(name) + 1)] if record.id.endswith(f"-{name}") else record.id
+        if board and name != board:
+            continue
+        existing = found.get((name, stamp))
+        if existing:
+            existing.status = record.status
+            existing.trigger = record.trigger
+            existing.run_id = record.id
+            existing.has_log = record.has_log
+        else:
+            # A scan that produced no report at all — which is the interesting kind.
+            found[(name, stamp)] = Run(
+                board=name, stamp=stamp,
+                jobs=record.jobs or 0, searches=record.searches or 0,
+                healthy=record.status == "done" and bool(record.jobs),
+                status=record.status, trigger=record.trigger,
+                run_id=record.id, has_log=record.has_log,
+            )
+    # Sort on the digits: stamp shapes differ across the history, and "-" and "0" do not
+    # compare the way the dates they separate do.
+    return sorted(found.values(), key=lambda r: "".join(c for c in r.stamp if c.isdigit()), reverse=True)
+
+
+def _recorded_runs() -> list:
+    from . import scans
+    return scans.history(10_000)
 
 
 def page_of(items: list, page: int, per_page: int) -> tuple[list, int, int]:

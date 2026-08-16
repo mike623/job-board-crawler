@@ -3,19 +3,27 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "reed_crawler"))
+
+import run_record
 from dashboard import scans
 from dashboard.app import app
 
 
 @pytest.fixture(autouse=True)
 def isolated_state(tmp_path, monkeypatch):
-    """Keep every test off the real outputs/state."""
-    monkeypatch.setattr(scans, "STATE", tmp_path)
-    monkeypatch.setattr(scans, "RUNS_FILE", tmp_path / "runs.json")
+    """Keep every test off the real outputs/state.
+
+    The history itself lives in run_record now: every scan records itself there, whatever
+    started it. scans only owns the captured logs.
+    """
+    monkeypatch.setattr(run_record, "STATE", tmp_path)
+    monkeypatch.setattr(run_record, "RUNS_FILE", tmp_path / "runs.json")
     monkeypatch.setattr(scans, "LOG_DIR", tmp_path / "logs")
     return tmp_path
 
@@ -32,7 +40,10 @@ def write_records(state, records):
 # ---- persistence ----
 
 def test_history_is_newest_first_and_survives_a_restart(isolated_state):
-    write_records(isolated_state, [record(id="old"), record(id="new")])
+    write_records(isolated_state, [
+        record(id="old", started="2026-08-14T09:00:00"),
+        record(id="new", started="2026-08-15T09:00:00"),
+    ])
 
     assert [r.id for r in scans.history()] == ["new", "old"]
 

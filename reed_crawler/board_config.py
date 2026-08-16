@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import random
 from datetime import datetime
 from pathlib import Path
@@ -23,8 +24,12 @@ def load_config(path: str | Path = ROOT / "config.yml") -> dict:
 
 
 def run_stamp() -> str:
-    """One timestamp per scan run, shared by that run's raw captures and its reports."""
-    return datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    """One timestamp per scan run, shared by that run's raw captures, reports and record.
+
+    A caller that needs the identity up front — the dashboard, which redirects to the run's
+    page before the scan has started — passes it down instead.
+    """
+    return os.environ.get("JOB_CRAWLER_RUN_STAMP") or datetime.now().strftime("%Y-%m-%d_%H%M%S")
 
 
 def raw_capture_stem(name: str, stamp: str) -> str:

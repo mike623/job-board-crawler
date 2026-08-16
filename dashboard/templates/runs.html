@@ -24,22 +24,27 @@
 <div class="scroll">
 <table>
   <thead>
-    <tr><th>When</th><th>Board</th><th class="num">Searches</th><th class="num">Jobs found</th><th></th></tr>
+    <tr><th>When</th><th>Board</th><th>Outcome</th><th>Trigger</th><th class="num">Searches</th><th class="num">Jobs found</th><th></th></tr>
   </thead>
   <tbody>
   {% for run in runs %}
     <tr>
       <td>{{ run.display_time }}</td>
       <td class="muted">{{ run.board }}</td>
+      <td class="{{ 'good' if run.status == 'done' else ('warn' if run.status in ('busy', 'interrupted') else ('bad' if run.status == 'failed' else 'muted')) }}">
+        {{ run.status or '—' }}
+      </td>
+      <td class="muted">{{ run.trigger or '—' }}</td>
       <td class="num">{{ run.searches }}</td>
       <td class="num">{{ run.jobs }}</td>
       <td>
-        {% if not run.healthy %}<span class="bad">found nothing</span>
-        {% else %}<a href="/jobs?board={{ run.board }}&state=">view jobs</a>{% endif %}
+        {% if run.has_log %}<a href="/scan/{{ run.run_id }}">log</a>
+        {% elif not run.healthy %}<span class="bad">found nothing</span>
+        {% else %}<a href="/jobs?board={{ run.board }}&state=">jobs</a>{% endif %}
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="5" class="muted">No scans recorded.</td></tr>
+    <tr><td colspan="7" class="muted">No scans recorded.</td></tr>
   {% endfor %}
   </tbody>
 </table>

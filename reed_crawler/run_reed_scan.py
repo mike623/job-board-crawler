@@ -11,6 +11,7 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
 from board_config import board_locations, board_titles, jittered, raw_capture_stem, run_stamp
 import salary as salary_parser
+import run_record
 import scan_health
 import scan_lock
 from reed_utils import SearchSpec, dedupe_jobs, parse_jobs_from_markdown, write_report
@@ -110,34 +111,36 @@ async def main() -> None:
 
     with scan_lock.hold("reed"):
         stamp = run_stamp()
-        health = scan_health.RunHealth("reed")
-        all_jobs = []
-        async with AsyncWebCrawler(config=browser_config) as crawler:
-            for spec in specs:
-                all_jobs.extend(await crawl_search(crawler, spec, run_config, stamp, health))
-                await asyncio.sleep(jittered(float(crawl_cfg.get("delay_seconds", cfg.get("delay_seconds", 2)))))
+        with run_record.record("reed", stamp) as findings:
+            health = scan_health.RunHealth("reed")
+            all_jobs = []
+            async with AsyncWebCrawler(config=browser_config) as crawler:
+                for spec in specs:
+                    all_jobs.extend(await crawl_search(crawler, spec, run_config, stamp, health))
+                    await asyncio.sleep(jittered(float(crawl_cfg.get("delay_seconds", cfg.get("delay_seconds", 2)))))
 
-        for job in all_jobs:
-            salary_parser.apply_to(job)
-        deduped = sorted(dedupe_jobs(all_jobs), key=salary_parser.sort_key, reverse=True)
+            for job in all_jobs:
+                salary_parser.apply_to(job)
+            deduped = sorted(dedupe_jobs(all_jobs), key=salary_parser.sort_key, reverse=True)
 
-        REPORTS.mkdir(parents=True, exist_ok=True)
-        raw_json = REPORTS / f"reed_raw_{stamp}.json"
-        dedup_json = REPORTS / f"reed_deduped_{stamp}.json"
-        report_md = REPORTS / f"reed_report_{stamp}.md"
+            REPORTS.mkdir(parents=True, exist_ok=True)
+            raw_json = REPORTS / f"reed_raw_{stamp}.json"
+            dedup_json = REPORTS / f"reed_deduped_{stamp}.json"
+            report_md = REPORTS / f"reed_report_{stamp}.md"
 
-        raw_json.write_text(json.dumps([j.to_dict() for j in all_jobs], indent=2), encoding="utf-8")
-        dedup_json.write_text(json.dumps([j.to_dict() for j in deduped], indent=2), encoding="utf-8")
-        write_report(deduped, report_md)
+            raw_json.write_text(json.dumps([j.to_dict() for j in all_jobs], indent=2), encoding="utf-8")
+            dedup_json.write_text(json.dumps([j.to_dict() for j in deduped], indent=2), encoding="utf-8")
+            write_report(deduped, report_md)
 
-        print("\nSummary")
-        print(f"Search pages crawled: {len(specs)}")
-        print(f"Raw jobs: {len(all_jobs)}")
-        print(f"Deduped jobs: {len(deduped)}")
-        print(f"Raw JSON: {raw_json}")
-        print(f"Deduped JSON: {dedup_json}")
-        print(f"Report: {report_md}")
-        health.finish()
+            print("\nSummary")
+            print(f"Search pages crawled: {len(specs)}")
+            print(f"Raw jobs: {len(all_jobs)}")
+            print(f"Deduped jobs: {len(deduped)}")
+            print(f"Raw JSON: {raw_json}")
+            print(f"Deduped JSON: {dedup_json}")
+            findings.update(jobs=len(deduped), searches=len(specs))
+            print(f"Report: {report_md}")
+            health.finish()
 
 
 if __name__ == "__main__":
