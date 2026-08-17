@@ -34,7 +34,7 @@ app = FastAPI(title="Job Board Crawler", docs_url=None, redoc_url=None, lifespan
 CSV_COLUMNS = [
     "board", "job_id", "role_title", "company", "location", "salary",
     "salary_min", "salary_max", "salary_period", "contract", "posted",
-    "first_seen", "last_seen", "times_seen", "live", "in_pipeline", "url",
+    "first_seen", "last_seen", "times_seen", "in_pipeline", "url",
 ]
 
 
@@ -95,8 +95,8 @@ async def scan_log(run_id: str):
     )
 
 
-def _filters(board: str, state: str, min_pay: int | None, q: str, sort: str, actioned: str = "") -> dict:
-    return {"board": board, "state": state, "min_pay": min_pay, "q": q, "sort": sort, "actioned": actioned}
+def _filters(board: str, min_pay: int | None, q: str, sort: str, actioned: str = "") -> dict:
+    return {"board": board, "min_pay": min_pay, "q": q, "sort": sort, "actioned": actioned}
 
 
 def _annotated_jobs():
@@ -111,14 +111,13 @@ def _annotated_jobs():
 def job_list(
     request: Request,
     board: str = "",
-    state: str = "live",
     min_pay: int | None = None,
     q: str = "",
     sort: str = Query("first_seen"),
     actioned: str = "",
 ):
     every, has_pipeline = _annotated_jobs()
-    jobs = aggregate.select(every, board=board, state=state, min_pay=min_pay,
+    jobs = aggregate.select(every, board=board, min_pay=min_pay,
                             query=q, sort=sort, actioned=actioned)
     return templates.TemplateResponse(
         request,
@@ -127,7 +126,7 @@ def job_list(
             "jobs": jobs,
             "boards": aggregate.BOARDS,
             "sorts": list(aggregate.SORTS),
-            "filters": _filters(board, state, min_pay, q, sort, actioned),
+            "filters": _filters(board, min_pay, q, sort, actioned),
             "shown": len(jobs),
             "has_pipeline": has_pipeline,
         },
@@ -170,11 +169,11 @@ def run_log(request: Request, board: str = "", page: int = 1, per_page: int = 50
 
 
 @app.get("/export.csv")
-def export_csv(board: str = "", state: str = "live", min_pay: int | None = None,
+def export_csv(board: str = "", min_pay: int | None = None,
                q: str = "", sort: str = "first_seen", actioned: str = ""):
     """The current filter, as a spreadsheet."""
     every, _ = _annotated_jobs()
-    jobs = aggregate.select(every, board=board, state=state, min_pay=min_pay,
+    jobs = aggregate.select(every, board=board, min_pay=min_pay,
                             query=q, sort=sort, actioned=actioned)
 
     buffer = io.StringIO()
@@ -187,7 +186,6 @@ def export_csv(board: str = "", state: str = "live", min_pay: int | None = None,
             "first_seen": job.first_seen,
             "last_seen": job.last_seen,
             "times_seen": job.times_seen,
-            "live": "yes" if job.live else "no",
             "in_pipeline": "yes" if (job.pipeline and job.pipeline.present) else "no",
             **{k: job.fields.get(k, "") for k in
                ("role_title", "company", "location", "salary", "salary_min",

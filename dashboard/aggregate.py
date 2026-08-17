@@ -32,7 +32,6 @@ class Job:
     first_seen: str
     last_seen: str
     times_seen: int
-    live: bool
     fields: dict = field(default_factory=dict)
     pipeline: object = None  # set by dashboard.pipeline.annotate when the workspace exists
 
@@ -57,8 +56,6 @@ class BoardSummary:
     board: str
     scanned: bool = False
     known: int = 0
-    live: int = 0
-    vanished: int = 0
     new: int = 0
     runs: int = 0
     last_run: str = ""
@@ -88,15 +85,7 @@ def _read(path: Path) -> list[dict]:
 
 
 def jobs_for_board(board: str, outputs: Path = OUTPUTS) -> list[Job]:
-    """Collapse every run of a board into one record per job.
-
-    A job counts as live when it appeared in the most recent run *of a search it was found
-    under* — not merely the board's most recent run. Runs are routinely partial: a --limit
-    smoke test or a max_pages_per_run cap covers a subset of searches, and judging liveness
-    against the board's last run would report every job outside that subset as vanished.
-    """
-    latest_run_of_search: dict[tuple, str] = {}
-    ids_seen: dict[tuple, set] = defaultdict(set)
+    """Collapse every run of a board into one record per job."""
     first: dict[str, str] = {}
     last: dict[str, str] = {}
     times: Counter = Counter()
@@ -107,11 +96,6 @@ def jobs_for_board(board: str, outputs: Path = OUTPUTS) -> list[Job]:
             job_id = str(row.get("job_id") or "").strip()
             if not job_id:
                 continue
-            search = (row.get("search_title") or "", row.get("search_location") or "")
-            if stamp > latest_run_of_search.get(search, ""):
-                latest_run_of_search[search] = stamp
-            ids_seen[(stamp, search)].add(job_id)
-
             first[job_id] = min(first.get(job_id, stamp), stamp)
             last[job_id] = max(last.get(job_id, ""), stamp)
             times[job_id] += 1
@@ -121,10 +105,6 @@ def jobs_for_board(board: str, outputs: Path = OUTPUTS) -> list[Job]:
                 if value not in (None, ""):
                     merged[job_id][key] = value
 
-    live_ids: set[str] = set()
-    for search, stamp in latest_run_of_search.items():
-        live_ids |= ids_seen.get((stamp, search), set())
-
     return [
         Job(
             board=board,
@@ -132,7 +112,6 @@ def jobs_for_board(board: str, outputs: Path = OUTPUTS) -> list[Job]:
             first_seen=first[job_id],
             last_seen=last[job_id],
             times_seen=times[job_id],
-            live=job_id in live_ids,
             fields=merged[job_id],
         )
         for job_id in sorted(first, key=lambda j: (first[j], j), reverse=True)
@@ -146,13 +125,10 @@ def summarise_board(board: str, outputs: Path = OUTPUTS) -> BoardSummary:
 
     jobs = jobs_for_board(board, outputs)
     last_run = max(stamp for stamp, _ in reports)
-    live = sum(1 for j in jobs if j.live)
     return BoardSummary(
         board=board,
         scanned=True,
         known=len(jobs),
-        live=live,
-        vanished=len(jobs) - live,
         new=sum(1 for j in jobs if j.first_seen == last_run),
         runs=len(reports),
         last_run=last_run,
@@ -282,7 +258,7 @@ SORTS = {
 _ASCENDING = {"company", "role"}
 
 
-def select(jobs: list[Job], board: str = "", state: str = "", min_pay: int | None = None,
+def select(jobs: list[Job], board: str = "", min_pay: int | None = None,
            query: str = "", sort: str = "first_seen", actioned: str = "") -> list[Job]:
     """Apply the filters and ordering the job list offers."""
     chosen = jobs
@@ -292,10 +268,6 @@ def select(jobs: list[Job], board: str = "", state: str = "", min_pay: int | Non
         chosen = [j for j in chosen if j.pipeline and j.pipeline.present]
     if board:
         chosen = [j for j in chosen if j.board == board]
-    if state == "live":
-        chosen = [j for j in chosen if j.live]
-    elif state == "vanished":
-        chosen = [j for j in chosen if not j.live]
     if min_pay:
         # An advert with no figure cannot be shown to clear a floor, so it is excluded.
         chosen = [j for j in chosen if (j.pay or 0) >= min_pay]
@@ -312,8 +284,6 @@ def select(jobs: list[Job], board: str = "", state: str = "", min_pay: int | Non
 def totals(summaries: list[BoardSummary]) -> dict:
     return {
         "known": sum(s.known for s in summaries),
-        "live": sum(s.live for s in summaries),
-        "vanished": sum(s.vanished for s in summaries),
         "new": sum(s.new for s in summaries),
         "runs": sum(s.runs for s in summaries),
     }

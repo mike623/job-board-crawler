@@ -57,7 +57,6 @@ Each of these was learned from a bug. Breaking one silently corrupts data or get
 
 - **Per-host request rate is the safety property, not worker count.** Boards are separate hosts, so scanning them concurrently is free. Within a host the limit is `max(1, len(proxies))` — splitting by search term changes *what* is asked for, not *how often*, because rate limits are per IP. Never let pool size govern this.
 - **Raw captures carry the run stamp.** They were once written to a deterministic name, so each scan destroyed the previous evidence for that search and concurrent scans corrupted each other. `raw_capture_stem` exists for this.
-- **Liveness is per search, not per run.** A job is live if it appeared in the most recent run *of a search it was found under*. Runs are routinely partial; judging against the board's last run marked 115 of 186 Reed jobs vanished.
 - **An empty page body is a failure, not zero results.** A crawl can return success with nothing in it. `scan_health` classifies this so a board cannot silently stop producing data.
 - **One scan per board.** The lock lives in the scan entrypoints so the external cron inherits it without being modified. Exit 75 means busy, not broken.
 - **The downstream workspace is read-only.** `dashboard/pipeline.py` only ever reads it. A test asserts nothing under it is modified.

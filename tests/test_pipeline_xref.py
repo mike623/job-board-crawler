@@ -92,9 +92,9 @@ def test_the_actioned_filter_narrows_to_what_still_needs_attention(workspace):
     jobs = [make(board="reed", job_id="57233852"), make(board="reed", job_id="untouched")]
     pipeline.annotate(jobs, statuses)
 
-    assert [j.job_id for j in aggregate.select(jobs, state="", actioned="no")] == ["untouched"]
-    assert [j.job_id for j in aggregate.select(jobs, state="", actioned="yes")] == ["57233852"]
-    assert len(aggregate.select(jobs, state="", actioned="")) == 2
+    assert [j.job_id for j in aggregate.select(jobs, actioned="no")] == ["untouched"]
+    assert [j.job_id for j in aggregate.select(jobs, actioned="yes")] == ["57233852"]
+    assert len(aggregate.select(jobs, actioned="")) == 2
 
 
 def test_the_workspace_is_never_written_to(workspace):

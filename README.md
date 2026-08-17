@@ -18,12 +18,12 @@ python -m dashboard          # http://127.0.0.1:8080
 ## Features
 
 - **Four boards, one config.** Reed, Totaljobs, Indeed and Talent.com, all driven from a single `config.yml`.
-- **Job-centric history.** Every job appears once, with when it was first and last seen, how many scans have seen it, and whether it is still listed.
+- **Job-centric history.** Every job appears once, with when it was first and last seen and how many scans have seen it.
 - **Structured salary.** Free text like `£70k - 85k per year` or `71,250-118,000 Annual` becomes a sortable minimum, maximum and period.
 - **Scan from the browser.** Start a board and watch its output stream live; the scan survives closing the page.
 - **Slow by design.** Per-host request rates are bounded and delays are jittered, so concurrency never costs a board extra traffic.
 - **One scan per board.** A file lock the cron inherits, so a manual scan and a scheduled one cannot collide.
-- **Knows what you've actioned.** Cross-references a downstream workspace, read-only, so you can filter to what is live and untouched.
+- **Knows what you've actioned.** Cross-references a downstream workspace, read-only, so you can filter to what is untouched.
 - **Honest failures.** A page that comes back empty is reported as a broken scan, not as a search with no matches.
 
 ## How it works
@@ -45,9 +45,6 @@ python -m dashboard          # http://127.0.0.1:8080
 ```
 
 Nothing is cached and nothing is precomputed. The dashboard reads the same report files the crawler writes, so it cannot disagree with them, and deleting the service loses nothing.
-
-> [!NOTE]
-> A job counts as **live** when it appeared in the most recent scan *of a search it was found under*, not merely the board's most recent scan. Runs are routinely partial — a `--limit` smoke test, or a `max_pages_per_run` cap — and judging against the last run alone would report most of a board as vanished.
 
 ## Getting started
 
@@ -119,7 +116,7 @@ Bound to loopback only, with no host option: it can start scans, so it must not 
 | `/runs` | Did the crawler break? |
 | `/export.csv` | Give me the current filter as a spreadsheet |
 
-Filter jobs by board, by live or vanished, by a pay floor, and by whether they have already reached your downstream workspace. Sort by pay, dates, company or how many times a job has been seen.
+Filter jobs by board, by a pay floor, and by whether they have already reached your downstream workspace. Sort by pay, dates, company or how many times a job has been seen.
 
 ### Running scans
 
@@ -200,8 +197,6 @@ python -m py_compile reed_crawler/*.py dashboard/*.py
 **A scan exits 75.** The board is already being scanned, by the cron, a terminal or the dashboard. Nothing is wrong; wait for the other one.
 
 **A board returns zero jobs with a healthy page.** The parser needs updating for changed markup. Diff the newest capture in `outputs/<board>/raw/` against an older one.
-
-**A job shows as vanished that you can still see.** It was absent from the most recent scan of the search it was found under. Re-scan that board.
 
 **Crawls hang.** Run `crawl4ai-doctor`, then set `crawl.headless: false` to watch the browser and see where it stalls.
 
