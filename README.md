@@ -3,11 +3,11 @@
 ![Python version](https://img.shields.io/badge/python-3.11%2B-blue.svg)
 [![Crawl4AI](https://img.shields.io/badge/built%20with-Crawl4AI-6f42c1.svg)](https://github.com/unclecode/crawl4ai)
 [![FastAPI](https://img.shields.io/badge/dashboard-FastAPI-009485.svg)](https://fastapi.tiangolo.com/)
-![Boards](https://img.shields.io/badge/boards-Reed%20%7C%20Totaljobs%20%7C%20Indeed%20%7C%20Talent.com-success.svg)
+![Boards](https://img.shields.io/badge/boards-Reed%20%7C%20Totaljobs%20%7C%20Indeed%20%7C%20Talent.com%20%7C%20Adzuna-success.svg)
 
-> Watches four UK job boards, keeps track of what appears and disappears, and shows you the difference
+> Watches five UK job boards, keeps track of what appears and disappears, and shows you the difference
 
-Job boards render their listings with JavaScript, rate-limit aggressively, and never tell you what changed since yesterday. This drives a real headless browser through Reed, Totaljobs, Indeed and Talent.com — slowly enough not to get blocked — then serves a local dashboard over everything it has collected.
+Job boards render their listings with JavaScript, rate-limit aggressively, and never tell you what changed since yesterday. This drives a real headless browser through Reed, Totaljobs, Indeed and Talent.com — slowly enough not to get blocked — reads Adzuna from its JSON API, then serves a local dashboard over everything it has collected.
 
 Because every scan is kept, the dashboard can answer things a single search cannot: which jobs are new, which have quietly disappeared, how long one has been open, and which you have already dealt with.
 
@@ -17,7 +17,7 @@ python -m dashboard          # http://127.0.0.1:8080
 
 ## Features
 
-- **Four boards, one config.** Reed, Totaljobs, Indeed and Talent.com, all driven from a single `config.yml`.
+- **Five boards, one config.** Reed, Totaljobs, Indeed, Talent.com and Adzuna, all driven from a single `config.yml`.
 - **Job-centric history.** Every job appears once, with when it was first and last seen and how many scans have seen it.
 - **Structured salary.** Free text like `£70k - 85k per year` or `71,250-118,000 Annual` becomes a sortable minimum, maximum and period.
 - **Scan from the browser.** Start a board and watch its output stream live; the scan survives closing the page.
@@ -138,6 +138,7 @@ python reed_crawler/run_reed_scan.py --config config.yml [--limit N]
 python reed_crawler/totaljobs_pipeline.py scan --config config.yml [--limit N]
 python reed_crawler/talent_pipeline.py scan --config config.yml --limit 1
 python reed_crawler/indeed_pipeline.py scan --config config.yml [--allow-disabled]
+python reed_crawler/adzuna_pipeline.py scan --config config.yml [--allow-disabled]
 ```
 
 `scan_all.py` takes its board list from `boards.<name>.enabled`, so turning a board on or off is a config edit rather than a change to the cron. A single board's script still runs on its own; `--allow-disabled` scans Indeed when the config has it off, for manual smoke tests only.
@@ -152,6 +153,7 @@ python reed_crawler/indeed_pipeline.py scan --config config.yml [--allow-disable
 | **Totaljobs** | Markdown cards | Anchored on the card's `more` line |
 | **Indeed** | HTML | Card links are click wrappers with no job id; the HTML has one |
 | **Talent.com** | Markdown cards | Needs a seed result `id` to hydrate — see below |
+| **Adzuna** | JSON API | Not crawled at all: the site 403s every bot. Needs free API credentials — see below |
 
 ### Talent.com
 
@@ -169,6 +171,24 @@ boards:
 ```
 
 It rate-limits harder than the others; keep the volume low.
+
+### Adzuna
+
+`adzuna.co.uk` sits behind CloudFront, which answers every automated request with a bare 403 — curl and headless Chromium alike, whatever user agent is offered. There is no markup to parse, so this board reads Adzuna's [JSON search API](https://developer.adzuna.com/) instead. Register free, then:
+
+```yaml
+boards:
+  adzuna:
+    enabled: true
+    app_id: "..."          # or export ADZUNA_APP_ID
+    app_key: "..."         # or export ADZUNA_APP_KEY
+    title_groups: [primary]
+    location_groups: [core]
+    distance: 30           # kilometres
+    results_per_page: 50   # the API's maximum
+```
+
+`config.yml` is gitignored, so credentials are safe there; the environment variables win when set. They are attached at request time only, so no capture, report or log line ever contains the key. Pay comes back as numbers rather than as advertiser prose — where `salary_is_predicted` is set, the salary is Adzuna's own estimate and says so.
 
 ## Outputs
 

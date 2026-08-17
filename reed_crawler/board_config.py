@@ -4,7 +4,7 @@ import os
 import random
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode
 
 import yaml
 
@@ -13,6 +13,10 @@ BASE_REED = "https://www.reed.co.uk"
 BASE_TOTALJOBS = "https://www.totaljobs.com"
 BASE_INDEED = "https://uk.indeed.com"
 BASE_TALENT = "https://uk.talent.com"
+# Adzuna's own search pages answer any automated fetch with a CloudFront 403, so this board
+# is read from Adzuna's JSON API. Credentials are attached by the pipeline at request time,
+# never here — these URLs are printed, captured and logged.
+BASE_ADZUNA = "https://api.adzuna.com/v1/api/jobs/gb/search"
 
 
 def slug_text(s: str) -> str:
@@ -74,6 +78,17 @@ def indeed_search_url(title: str, location: str, radius: int) -> str:
     return f"{BASE_INDEED}/jobs?q={quote_plus(title)}&l={quote_plus(location)}&radius={radius}"
 
 
+def adzuna_search_url(title: str, location: str, distance: int, results_per_page: int = 50, page: int = 1) -> str:
+    params = urlencode({
+        "what": title,
+        "where": location,
+        "distance": distance,          # kilometres from `where`
+        "results_per_page": results_per_page,
+        "content-type": "application/json",
+    })
+    return f"{BASE_ADZUNA}/{page}?{params}"
+
+
 def talent_search_url(keyword: str, location: str, result_id: str = "") -> str:
     url = f"{BASE_TALENT}/jobs?k={quote_plus(keyword)}&l={quote_plus(location)}"
     if result_id:
@@ -114,6 +129,9 @@ def build_board_urls(cfg: dict, board: str) -> list[dict]:
                 url = indeed_search_url(title, location, int(board_cfg.get("radius", 50)))
             elif board == "talent":
                 url = talent_search_url(title, location)
+            elif board == "adzuna":
+                url = adzuna_search_url(title, location, int(board_cfg.get("distance", 30)),
+                                        int(board_cfg.get("results_per_page", 50)))
             else:
                 raise ValueError(f"Unsupported board: {board}")
             rows.append({"board": board, "title": title, "location": location, "url": url})

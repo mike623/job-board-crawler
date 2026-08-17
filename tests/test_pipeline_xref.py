@@ -18,6 +18,8 @@ PIPELINE = """\
 - [ ] https://www.totaljobs.com/job/senior-java-engineer/morson-edge-job107832069 | Morson
 - [x] https://uk.indeed.com/viewjob?jk=abc123def456 | Some Co
 - [ ] https://uk.talent.com/view?id=611275213865225891 | Kerridge
+- [ ] https://www.adzuna.co.uk/jobs/details/5843030543?utm_medium=api | Adzuna direct link
+- [x] https://www.adzuna.co.uk/jobs/land/ad/5841506270?se=x&utm_medium=api | Adzuna click wrapper
 - [ ] https://www.linkedin.com/jobs/view/4271234567 | not one of our boards
 - [ ] a note with no link at all
 
@@ -40,6 +42,9 @@ def test_identifiers_are_recovered_from_every_entry_shape(workspace):
     assert ("totaljobs", "107832069") in statuses    # totaljobs URL
     assert ("indeed", "abc123def456") in statuses    # indeed jk parameter
     assert ("talent", "611275213865225891") in statuses
+    # Adzuna returns both link shapes for the same kind of advert.
+    assert ("adzuna", "5843030543") in statuses
+    assert ("adzuna", "5841506270") in statuses
 
 
 def test_a_ticked_entry_counts_as_actioned(workspace):

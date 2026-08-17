@@ -21,6 +21,7 @@ cp config.example.yml config.yml       # config.yml is gitignored
 .venv/bin/python reed_crawler/totaljobs_pipeline.py scan --config config.yml [--limit N]
 .venv/bin/python reed_crawler/talent_pipeline.py scan --config config.yml --limit 1
 .venv/bin/python reed_crawler/indeed_pipeline.py scan --config config.yml --allow-disabled
+.venv/bin/python reed_crawler/adzuna_pipeline.py scan --config config.yml --allow-disabled
 
 # Validate generated URLs without crawling — fast check after config or URL-builder edits
 .venv/bin/python reed_crawler/board_config.py
@@ -45,7 +46,9 @@ config.yml → scan (per-board lock, jittered delays)
                              → POST /scan/<board>, /scan-all  (subprocess + SSE)
 ```
 
-**Crawler modules.** `board_config.py` builds every board's URLs and owns `run_stamp`, `raw_capture_stem` and `jittered`. `salary.py` and `scan_lock.py` and `scan_health.py` are shared. Each board then has its own parsing: `reed_utils.py` + `run_reed_scan.py`, `totaljobs_pipeline.py`, `talent_pipeline.py`, `indeed_pipeline.py`.
+**Crawler modules.** `board_config.py` builds every board's URLs and owns `run_stamp`, `raw_capture_stem` and `jittered`. `salary.py` and `scan_lock.py` and `scan_health.py` are shared. Each board then has its own parsing: `reed_utils.py` + `run_reed_scan.py`, `totaljobs_pipeline.py`, `talent_pipeline.py`, `indeed_pipeline.py`, `adzuna_pipeline.py`.
+
+**Adzuna is an API, not a crawl.** `adzuna.co.uk` answers every automated fetch with a CloudFront 403 — curl and headless Chromium alike, any user agent — so `adzuna_pipeline.py` reads Adzuna's free JSON search API instead. No crawl4ai, no browser, no card parsing, and pay arrives as numbers so `salary.py` is not asked to parse it back out of prose. Credentials (free from developer.adzuna.com) live in `boards.adzuna.app_id` / `app_key` or `ADZUNA_APP_ID` / `ADZUNA_APP_KEY`, and are attached at request time so they never reach a raw capture, a report or the log. Raw captures are `.json` here; everything downstream sees the same report shape as any other board.
 
 **Dashboard modules.** `aggregate.py` is the only place that reads report JSON — jobs, board summaries, runs, filtering and sorting. `pipeline.py` reads the downstream workspace. `scans.py` runs scans as subprocesses and persists their records. `pool.py` bounds concurrency. `app.py` is routes only; `templates/` extends `base.html`.
 
