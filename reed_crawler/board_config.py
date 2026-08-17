@@ -13,6 +13,7 @@ BASE_REED = "https://www.reed.co.uk"
 BASE_TOTALJOBS = "https://www.totaljobs.com"
 BASE_INDEED = "https://uk.indeed.com"
 BASE_TALENT = "https://uk.talent.com"
+BASE_HAYSTACK = "https://haystack.cv"
 # Adzuna's own search pages answer any automated fetch with a CloudFront 403, so this board
 # is read from Adzuna's JSON API. Credentials are attached by the pipeline at request time,
 # never here — these URLs are printed, captured and logged.
@@ -96,6 +97,11 @@ def talent_search_url(keyword: str, location: str, result_id: str = "") -> str:
     return url
 
 
+def haystack_search_url(title: str, location: str) -> str:
+    # Haystack has no radius/proximity control; the free-text location is the only filter.
+    return f"{BASE_HAYSTACK}/jobs?q={quote_plus(title)}&location={quote_plus(location)}"
+
+
 def build_board_urls(cfg: dict, board: str) -> list[dict]:
     board_cfg = cfg["boards"][board]
     if not board_cfg.get("enabled", False):
@@ -129,6 +135,8 @@ def build_board_urls(cfg: dict, board: str) -> list[dict]:
                 url = indeed_search_url(title, location, int(board_cfg.get("radius", 50)))
             elif board == "talent":
                 url = talent_search_url(title, location)
+            elif board == "haystack":
+                url = haystack_search_url(title, location)
             elif board == "adzuna":
                 url = adzuna_search_url(title, location, int(board_cfg.get("distance", 30)),
                                         int(board_cfg.get("results_per_page", 50)))

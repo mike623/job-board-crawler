@@ -20,6 +20,7 @@ cp config.example.yml config.yml       # config.yml is gitignored
 .venv/bin/python reed_crawler/run_reed_scan.py --config config.yml [--limit N]
 .venv/bin/python reed_crawler/totaljobs_pipeline.py scan --config config.yml [--limit N]
 .venv/bin/python reed_crawler/talent_pipeline.py scan --config config.yml --limit 1
+.venv/bin/python reed_crawler/haystack_pipeline.py scan --config config.yml [--limit N]
 .venv/bin/python reed_crawler/indeed_pipeline.py scan --config config.yml --allow-disabled
 .venv/bin/python reed_crawler/adzuna_pipeline.py scan --config config.yml --allow-disabled
 
@@ -46,9 +47,11 @@ config.yml → scan (per-board lock, jittered delays)
                              → POST /scan/<board>, /scan-all  (subprocess + SSE)
 ```
 
-**Crawler modules.** `board_config.py` builds every board's URLs and owns `run_stamp`, `raw_capture_stem` and `jittered`. `salary.py` and `scan_lock.py` and `scan_health.py` are shared. Each board then has its own parsing: `reed_utils.py` + `run_reed_scan.py`, `totaljobs_pipeline.py`, `talent_pipeline.py`, `indeed_pipeline.py`, `adzuna_pipeline.py`.
+**Crawler modules.** `board_config.py` builds every board's URLs and owns `run_stamp`, `raw_capture_stem` and `jittered`. `salary.py` and `scan_lock.py` and `scan_health.py` are shared. Each board then has its own parsing: `reed_utils.py` + `run_reed_scan.py`, `totaljobs_pipeline.py`, `talent_pipeline.py`, `indeed_pipeline.py`, `adzuna_pipeline.py`, `haystack_pipeline.py`.
 
 **Adzuna is an API, not a crawl.** `adzuna.co.uk` answers every automated fetch with a CloudFront 403 — curl and headless Chromium alike, any user agent — so `adzuna_pipeline.py` reads Adzuna's free JSON search API instead. No crawl4ai, no browser, no card parsing, and pay arrives as numbers so `salary.py` is not asked to parse it back out of prose. Credentials (free from developer.adzuna.com) live in `boards.adzuna.app_id` / `app_key` or `ADZUNA_APP_ID` / `ADZUNA_APP_KEY`, and are attached at request time so they never reach a raw capture, a report or the log. Raw captures are `.json` here; everything downstream sees the same report shape as any other board.
+
+**Haystack is HTML, not markdown.** Every other crawled board is parsed from crawl4ai's markdown. haystack.cv is a client-rendered SPA whose markdown runs a card's fields together with no separator, so `haystack_pipeline.py` parses the HTML with BeautifulSoup, anchored on the icon that labels each field (see Invariants). It is a `scan`-only module, like `talent_pipeline.py`.
 
 **Dashboard modules.** `aggregate.py` is the only place that reads report JSON — jobs, board summaries, runs, filtering and sorting. `pipeline.py` reads the downstream workspace. `scans.py` runs scans as subprocesses and persists their records. `pool.py` bounds concurrency. `app.py` is routes only; `templates/` extends `base.html`.
 
@@ -64,6 +67,8 @@ Each of these was learned from a bug. Breaking one silently corrupts data or get
 - **One scan per board.** The lock lives in the scan entrypoints so the external cron inherits it without being modified. Exit 75 means busy, not broken.
 - **The downstream workspace is read-only.** `dashboard/pipeline.py` only ever reads it. A test asserts nothing under it is modified.
 - **Report filenames are a contract.** `<board>_<stage>_<YYYY-MM-DD>_<HHMMSS>.json`. Stage discovery and every aggregation parse this shape.
+- **Haystack is parsed from HTML, not markdown.** haystack.cv renders a whole card as one link whose text concatenates title, company, location, salary and posted date with no separator, so markdown cannot recover the fields. `parse_search_cards` walks the HTML and anchors each field on the lucide icon that labels it (`lucide-building2` → company, `lucide-map-pin` → location, `lucide-banknote` → salary, `lucide-clock` → posted). The surrounding utility classes are generated and will churn; the icon names are the stable part.
+- **An empty Haystack scan can be the board, not the crawl.** Its search backend intermittently answers "Something went wrong loading jobs" on an otherwise healthy page; the scan retries once and then records zero leads. Its free-text `q` also matches loosely and appears to require every term, so multi-word titles return far fewer results than short ones. Pagination is a "Load More" button, so a scan sees only the first ~20 cards per search.
 
 ## Config
 

@@ -31,6 +31,9 @@ _IDENTIFIERS = [
     # Adzuna hands back two link shapes for the same advert: /jobs/details/<id> and a
     # /land/ad/<id> click wrapper. Both carry the id the API reports.
     ("adzuna", re.compile(r"adzuna\.co\.uk/(?:jobs/)?(?:details|land/ad)/(\d+)")),
+    # Haystack ids are UUIDs, so the hyphen-delimited "local:jds/<board>-<id>-" shape below
+    # cannot recover one; the URL is what identifies a Haystack advert.
+    ("haystack", re.compile(r"haystack\.cv/jobs/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")),
 ]
 _LOCAL_IMPORT = re.compile(r"local:jds/([a-z]+)-([^-\s]+)-")
 

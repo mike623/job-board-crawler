@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reed_crawler"))
 
 import adzuna_pipeline
+import haystack_pipeline
 import indeed_pipeline
 import reed_utils
 import salary
@@ -23,6 +24,7 @@ LEAD_TYPES = [
     talent_pipeline.TalentLead,
     indeed_pipeline.IndeedLead,
     adzuna_pipeline.AdzunaLead,
+    haystack_pipeline.HaystackLead,
 ]
 
 
@@ -35,7 +37,7 @@ def test_records_carry_no_score(lead_type) -> None:
 
 
 @pytest.mark.parametrize("module", [reed_utils, totaljobs_pipeline, talent_pipeline, indeed_pipeline,
-                                    adzuna_pipeline],
+                                    adzuna_pipeline, haystack_pipeline],
                          ids=lambda m: m.__name__)
 def test_no_board_computes_a_score(module) -> None:
     assert not hasattr(module, "score_job")

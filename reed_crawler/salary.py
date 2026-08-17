@@ -25,13 +25,16 @@ _PERCENT = re.compile(r"\d[\d,.]*\s*%")
 # butts straight against the digits, so \b cannot be used to anchor its left edge — a lookbehind
 # that rejects letters but allows digits is what distinguishes "55ph" from the "ph" inside a word.
 _ABBREV = r"(?<![A-Za-z])p\s*[./]?\s*{}\.?(?![A-Za-z])"
-# Boards phrase the period as "per day", "a day", "daily" or "p/d" interchangeably.
+# Aggregators write the period as a unit suffix instead: "£87,000/yr", "£14 - £16/h", "£395/d".
+_SLASHED = r"/\s*(?:{})(?![A-Za-z])"
+
+# Boards phrase the period as "per day", "a day", "daily", "p/d" or "/d" interchangeably.
 _PERIODS = [
-    (re.compile(r"per\s+day|\ba\s+day\b|\bday\s*rate\b|\bdaily\b|" + _ABBREV.format("d"), re.I), "day"),
-    (re.compile(r"per\s+hour|\ban\s+hour\b|\bhourly\b|" + _ABBREV.format("h"), re.I), "hour"),
-    (re.compile(r"per\s+annum|per\s+year|\ba\s+year\b|\bannual(?:ly)?\b|" + _ABBREV.format("a"), re.I), "year"),
-    (re.compile(r"per\s+week|\ba\s+week\b|\bweekly\b", re.I), "week"),
-    (re.compile(r"per\s+month|\ba\s+month\b|\bmonthly\b", re.I), "month"),
+    (re.compile(r"per\s+day|\ba\s+day\b|\bday\s*rate\b|\bdaily\b|" + _ABBREV.format("d") + "|" + _SLASHED.format("d|day"), re.I), "day"),
+    (re.compile(r"per\s+hour|\ban\s+hour\b|\bhourly\b|" + _ABBREV.format("h") + "|" + _SLASHED.format("h|hr|hour"), re.I), "hour"),
+    (re.compile(r"per\s+annum|per\s+year|\ba\s+year\b|\bannual(?:ly)?\b|" + _ABBREV.format("a") + "|" + _SLASHED.format("yr|year|annum"), re.I), "year"),
+    (re.compile(r"per\s+week|\ba\s+week\b|\bweekly\b|" + _SLASHED.format("wk|week"), re.I), "week"),
+    (re.compile(r"per\s+month|\ba\s+month\b|\bmonthly\b|" + _SLASHED.format("mo|month"), re.I), "month"),
 ]
 
 # "Up to £80,000" is a ceiling; "From £55,000" is a floor. Only meaningful for a lone amount.

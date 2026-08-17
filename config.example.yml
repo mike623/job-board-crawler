@@ -78,6 +78,18 @@ boards:
       - no experience needed
       - training programme
 
+  haystack:
+    # Aggregator (haystack.cv). Results are rendered client-side and its search backend
+    # intermittently errors, so an empty scan is normal rather than a bug. Its free-text
+    # search is loose and appears to require every term, so short titles return far more
+    # than long ones.
+    enabled: true
+    title_groups:
+      - primary
+    location_groups:
+      - core
+    max_pages_per_run: 4
+
   adzuna:
     # Read from Adzuna's JSON API, not by crawling: adzuna.co.uk answers automated fetches
     # with a CloudFront 403. Credentials are free from developer.adzuna.com; either set them
