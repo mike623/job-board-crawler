@@ -24,11 +24,6 @@
     <option value="">all boards</option>
     {% for b in boards %}<option value="{{ b }}" {{ 'selected' if filters.board == b }}>{{ b }}</option>{% endfor %}
   </select>
-  <select name="state">
-    <option value="live" {{ 'selected' if filters.state == 'live' }}>live</option>
-    <option value="vanished" {{ 'selected' if filters.state == 'vanished' }}>vanished</option>
-    <option value="" {{ 'selected' if not filters.state }}>any state</option>
-  </select>
   <label>min £<input type="number" name="min_pay" value="{{ filters.min_pay or '' }}" step="5000" style="width:7em"></label>
   {% if has_pipeline %}
   <select name="actioned">
@@ -46,7 +41,7 @@
 
 <p class="muted" style="font-size:12.5px">
   {{ shown }} job{{ '' if shown == 1 else 's' }}
-  &middot; <a href="/export.csv?board={{ filters.board }}&state={{ filters.state }}&min_pay={{ filters.min_pay or '' }}&q={{ filters.q }}&sort={{ filters.sort }}&actioned={{ filters.actioned }}">download CSV</a>
+  &middot; <a href="/export.csv?board={{ filters.board }}&min_pay={{ filters.min_pay or '' }}&q={{ filters.q }}&sort={{ filters.sort }}&actioned={{ filters.actioned }}">download CSV</a>
 </p>
 
 <div class="scroll">
@@ -54,7 +49,7 @@
   <thead>
     <tr>
       <th>Role</th><th>Company</th><th>Location</th><th class="num">Pay</th>
-      <th>Board</th><th>First seen</th><th class="num">Seen</th><th>State</th>
+      <th>Board</th><th>First seen</th><th class="num">Seen</th>
       {% if has_pipeline %}<th>Pipeline</th>{% endif %}
     </tr>
   </thead>
@@ -68,7 +63,6 @@
       <td class="muted">{{ job.board }}</td>
       <td class="muted">{{ job.first_seen[:10] }}</td>
       <td class="num muted">{{ job.times_seen }}</td>
-      <td>{% if job.live %}<span class="good">live</span>{% else %}<span class="muted">gone</span>{% endif %}</td>
       {% if has_pipeline %}<td>
         {%- if job.pipeline and job.pipeline.done %}<span class="good">done</span>
         {%- elif job.pipeline and job.pipeline.present %}imported
@@ -76,7 +70,7 @@
       </td>{% endif %}
     </tr>
   {% else %}
-    <tr><td colspan="9" class="muted">Nothing matches these filters.</td></tr>
+    <tr><td colspan="8" class="muted">Nothing matches these filters.</td></tr>
   {% endfor %}
   </tbody>
 </table>

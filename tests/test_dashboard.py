@@ -25,45 +25,8 @@ def test_a_board_that_was_never_scanned_reports_nothing_rather_than_erroring(tmp
     summary = aggregate.summarise_board("reed", tmp_path)
 
     assert summary.scanned is False
-    assert (summary.known, summary.live, summary.runs) == (0, 0, 0)
+    assert (summary.known, summary.runs) == (0, 0)
     assert summary.last_run_display == "never"
-
-
-def test_a_job_absent_from_the_latest_run_of_its_search_is_vanished(tmp_path):
-    write_run(tmp_path, "reed", "2026-08-01_090000", [job("1"), job("2")])
-    write_run(tmp_path, "reed", "2026-08-02_090000", [job("1")])
-
-    summary = aggregate.summarise_board("reed", tmp_path)
-
-    assert summary.known == 2
-    assert summary.live == 1
-    assert summary.vanished == 1
-
-
-def test_a_partial_run_does_not_make_the_rest_of_the_board_look_vanished(tmp_path):
-    # The regression this guards: a --limit smoke test, or a max_pages_per_run cap, covers only
-    # some searches. Judging liveness against the board's last run would bury everything else.
-    write_run(tmp_path, "reed", "2026-08-01_090000", [
-        job("leeds-1", location="leeds"), job("manc-1", location="manchester"),
-    ])
-    write_run(tmp_path, "reed", "2026-08-02_090000", [job("leeds-1", location="leeds")])
-
-    summary = aggregate.summarise_board("reed", tmp_path)
-
-    assert summary.live == 2, "the Manchester job was never re-checked, so it is not vanished"
-    assert summary.vanished == 0
-
-
-def test_a_job_dropped_by_a_later_run_of_its_own_search_is_vanished(tmp_path):
-    write_run(tmp_path, "reed", "2026-08-01_090000", [
-        job("leeds-1", location="leeds"), job("manc-1", location="manchester"),
-    ])
-    write_run(tmp_path, "reed", "2026-08-02_090000", [job("manc-2", location="manchester")])
-
-    summary = aggregate.summarise_board("reed", tmp_path)
-
-    assert summary.live == 2      # leeds-1 unre-checked, manc-2 fresh
-    assert summary.vanished == 1  # manc-1 was re-checked and had gone
 
 
 def test_first_and_last_seen_and_the_sighting_count(tmp_path):
@@ -75,7 +38,6 @@ def test_first_and_last_seen_and_the_sighting_count(tmp_path):
     assert only.first_seen == "2026-08-01_090000"
     assert only.last_seen == "2026-08-03_090000"
     assert only.times_seen == 3
-    assert only.live is True
 
 
 def test_a_later_blank_never_erases_a_value_an_earlier_run_captured(tmp_path):
@@ -120,7 +82,6 @@ def test_the_landing_page_renders(client):
     assert response.status_code == 200
     body = response.text
     assert "jobs known" in body
-    assert "still live" in body
     for board in aggregate.BOARDS:
         assert board in body
 

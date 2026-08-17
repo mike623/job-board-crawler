@@ -17,25 +17,17 @@ def client():
     return TestClient(app)
 
 
-def make(board="reed", job_id="1", live=True, **fields):
+def make(board="reed", job_id="1", **fields):
     return aggregate.Job(board=board, job_id=job_id, first_seen="2026-08-01_090000",
-                         last_seen="2026-08-02_090000", times_seen=2, live=live, fields=fields)
+                         last_seen="2026-08-02_090000", times_seen=2, fields=fields)
 
 
 # ---- filtering ----
 
-def test_state_filter_separates_live_from_vanished():
-    jobs = [make(job_id="a", live=True), make(job_id="b", live=False)]
-
-    assert [j.job_id for j in aggregate.select(jobs, state="live")] == ["a"]
-    assert [j.job_id for j in aggregate.select(jobs, state="vanished")] == ["b"]
-    assert len(aggregate.select(jobs, state="")) == 2
-
-
 def test_board_filter():
     jobs = [make(board="reed", job_id="a"), make(board="talent", job_id="b")]
 
-    assert [j.job_id for j in aggregate.select(jobs, board="talent", state="")] == ["b"]
+    assert [j.job_id for j in aggregate.select(jobs, board="talent")] == ["b"]
 
 
 def test_a_pay_floor_excludes_adverts_that_state_no_figure():
@@ -43,7 +35,7 @@ def test_a_pay_floor_excludes_adverts_that_state_no_figure():
     # it might. Otherwise the filter would quietly become "or unknown".
     jobs = [make(job_id="high", salary_max=80000), make(job_id="low", salary_max=40000), make(job_id="none")]
 
-    assert [j.job_id for j in aggregate.select(jobs, min_pay=70000, state="")] == ["high"]
+    assert [j.job_id for j in aggregate.select(jobs, min_pay=70000)] == ["high"]
 
 
 def test_search_matches_role_company_and_location():
@@ -54,18 +46,17 @@ def test_search_matches_role_company_and_location():
         make(job_id="x", role_title="Dev", company="Acme", location="Leeds"),
     ]
 
-    assert {j.job_id for j in aggregate.select(jobs, query="rust", state="")} == {"r", "c", "l"}
+    assert {j.job_id for j in aggregate.select(jobs, query="rust")} == {"r", "c", "l"}
 
 
 def test_filters_combine():
     jobs = [
-        make(board="reed", job_id="keep", live=True, salary_max=90000, role_title="Go dev"),
-        make(board="reed", job_id="poor", live=True, salary_max=20000, role_title="Go dev"),
-        make(board="reed", job_id="gone", live=False, salary_max=90000, role_title="Go dev"),
-        make(board="talent", job_id="other", live=True, salary_max=90000, role_title="Go dev"),
+        make(board="reed", job_id="keep", salary_max=90000, role_title="Go dev"),
+        make(board="reed", job_id="poor", salary_max=20000, role_title="Go dev"),
+        make(board="talent", job_id="other", salary_max=90000, role_title="Go dev"),
     ]
 
-    chosen = aggregate.select(jobs, board="reed", state="live", min_pay=70000, query="go")
+    chosen = aggregate.select(jobs, board="reed", min_pay=70000, query="go")
 
     assert [j.job_id for j in chosen] == ["keep"]
 
@@ -75,19 +66,19 @@ def test_filters_combine():
 def test_pay_sort_is_by_number_not_string_and_puts_unstated_last():
     jobs = [make(job_id="mid", salary_max=90000), make(job_id="none"), make(job_id="top", salary_max=120000)]
 
-    assert [j.job_id for j in aggregate.select(jobs, state="", sort="pay")] == ["top", "mid", "none"]
+    assert [j.job_id for j in aggregate.select(jobs, sort="pay")] == ["top", "mid", "none"]
 
 
 def test_name_sorts_run_a_to_z_while_the_rest_are_most_interesting_first():
     jobs = [make(job_id="b", company="Beta"), make(job_id="a", company="Alpha")]
 
-    assert [j.job_id for j in aggregate.select(jobs, state="", sort="company")] == ["a", "b"]
+    assert [j.job_id for j in aggregate.select(jobs, sort="company")] == ["a", "b"]
 
 
 def test_an_unknown_sort_falls_back_rather_than_erroring():
     jobs = [make(job_id="a"), make(job_id="b")]
 
-    assert len(aggregate.select(jobs, state="", sort="nonsense")) == 2
+    assert len(aggregate.select(jobs, sort="nonsense")) == 2
 
 
 # ---- detail ----
@@ -122,19 +113,19 @@ def test_an_unknown_job_or_board_is_a_404(client):
 
 
 def test_csv_export_carries_the_structured_columns(client):
-    response = client.get("/export.csv?state=")
+    response = client.get("/export.csv?")
 
     assert response.status_code == 200
     assert response.headers["content-disposition"] == 'attachment; filename="jobs.csv"'
     rows = list(csv.DictReader(io.StringIO(response.text)))
     assert rows, "expected at least one job in the export"
-    for column in ("board", "job_id", "salary_min", "salary_max", "salary_period", "live", "first_seen"):
+    for column in ("board", "job_id", "salary_min", "salary_max", "salary_period", "first_seen"):
         assert column in rows[0]
 
 
 def test_csv_export_honours_the_active_filter(client):
-    everything = list(csv.DictReader(io.StringIO(client.get("/export.csv?state=").text)))
-    filtered = list(csv.DictReader(io.StringIO(client.get("/export.csv?state=&min_pay=70000").text)))
+    everything = list(csv.DictReader(io.StringIO(client.get("/export.csv?").text)))
+    filtered = list(csv.DictReader(io.StringIO(client.get("/export.csv?min_pay=70000").text)))
 
     assert len(filtered) < len(everything)
     assert all(int(r["salary_max"] or r["salary_min"] or 0) >= 70000 for r in filtered)

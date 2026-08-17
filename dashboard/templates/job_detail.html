@@ -10,7 +10,6 @@
   {{ job.company or 'Unknown company' }}
   {% if job.get('location') %}&middot; {{ job.get('location') }}{% endif %}
   &middot; {{ job.board }}
-  &middot; {% if job.live %}<span class="good">live</span>{% else %}<span class="warn">no longer listed</span>{% endif %}
 </p>
 
 <div class="tiles" style="margin-top:18px">
@@ -56,8 +55,7 @@
     <tr>
       <td>{{ stamp[:10] }} <span class="muted">{{ stamp[11:13] }}:{{ stamp[13:15] }}</span></td>
       <td class="muted">
-        {%- if loop.first and job.live %}most recent scan of this search
-        {%- elif loop.first %}last time it appeared{% endif -%}
+        {%- if loop.first %}most recent sighting{% endif -%}
       </td>
     </tr>
   {% endfor %}
