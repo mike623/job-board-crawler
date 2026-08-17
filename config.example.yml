@@ -78,6 +78,21 @@ boards:
       - no experience needed
       - training programme
 
+  adzuna:
+    # Read from Adzuna's JSON API, not by crawling: adzuna.co.uk answers automated fetches
+    # with a CloudFront 403. Credentials are free from developer.adzuna.com; either set them
+    # here (config.yml is gitignored) or export ADZUNA_APP_ID / ADZUNA_APP_KEY.
+    enabled: false
+    app_id: ""
+    app_key: ""
+    title_groups:
+      - primary
+    location_groups:
+      - core
+    distance: 30           # kilometres from the location
+    results_per_page: 50   # the API's maximum
+    max_pages_per_run: 4
+
   talent:
     # Very low-volume Talent.com search-card discovery.
     # Talent.com can return an unhydrated shell for /jobs?k=...&l=...; supplying a

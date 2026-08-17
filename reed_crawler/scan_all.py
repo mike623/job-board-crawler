@@ -27,6 +27,7 @@ COMMANDS = {
     "totaljobs": ["reed_crawler/totaljobs_pipeline.py", "scan", "--config", "config.yml"],
     "talent": ["reed_crawler/talent_pipeline.py", "scan", "--config", "config.yml"],
     "indeed": ["reed_crawler/indeed_pipeline.py", "scan", "--config", "config.yml"],
+    "adzuna": ["reed_crawler/adzuna_pipeline.py", "scan", "--config", "config.yml"],
 }
 
 BUSY_EXIT_CODE = 75

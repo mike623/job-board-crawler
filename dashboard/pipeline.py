@@ -28,6 +28,9 @@ _IDENTIFIERS = [
     ("totaljobs", re.compile(r"totaljobs\.com/job/[^\s|]*?job(\d+)")),
     ("indeed", re.compile(r"indeed\.com/\S*?[?&]jk=([A-Za-z0-9]+)")),
     ("talent", re.compile(r"talent\.com/view\?id=(\d+)")),
+    # Adzuna hands back two link shapes for the same advert: /jobs/details/<id> and a
+    # /land/ad/<id> click wrapper. Both carry the id the API reports.
+    ("adzuna", re.compile(r"adzuna\.co\.uk/(?:jobs/)?(?:details|land/ad)/(\d+)")),
 ]
 _LOCAL_IMPORT = re.compile(r"local:jds/([a-z]+)-([^-\s]+)-")
 
