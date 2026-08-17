@@ -135,11 +135,15 @@ Scanning all boards runs them concurrently. They are separate hosts, so this cos
 The dashboard is a convenience; every scan is a plain script.
 
 ```bash
+python reed_crawler/scan_all.py --config config.yml [--limit N]   # every enabled board; what the cron runs
+
 python reed_crawler/run_reed_scan.py --config config.yml [--limit N]
 python reed_crawler/totaljobs_pipeline.py scan --config config.yml [--limit N]
 python reed_crawler/talent_pipeline.py scan --config config.yml --limit 1
-python reed_crawler/indeed_pipeline.py scan --config config.yml --allow-disabled
+python reed_crawler/indeed_pipeline.py scan --config config.yml [--allow-disabled]
 ```
+
+`scan_all.py` takes its board list from `boards.<name>.enabled`, so turning a board on or off is a config edit rather than a change to the cron. A single board's script still runs on its own; `--allow-disabled` scans Indeed when the config has it off, for manual smoke tests only.
 
 `--limit N` caps the search pages for one run. Every scan takes its board's lock, so the cron, a terminal and the dashboard all stay out of each other's way; a scan that finds the board busy exits **75**, and one where no search returned a usable page exits non-zero.
 

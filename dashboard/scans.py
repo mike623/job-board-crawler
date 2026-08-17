@@ -20,18 +20,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "reed_crawler"))
 
 import run_record
+from scan_all import COMMANDS
 
 ROOT = Path(__file__).resolve().parents[1]
 LOG_DIR = ROOT / "outputs" / "state" / "logs"
 
-# The exact commands the cron uses. Only scanning is exposed: anything that writes outside
+# COMMANDS is the cron's own table, imported rather than repeated: a button here and the
+# nightly run must be the same scan. Only scanning is exposed — anything that writes outside
 # this project stays at the terminal.
-COMMANDS = {
-    "reed": ["reed_crawler/run_reed_scan.py", "--config", "config.yml"],
-    "totaljobs": ["reed_crawler/totaljobs_pipeline.py", "scan", "--config", "config.yml"],
-    "talent": ["reed_crawler/talent_pipeline.py", "scan", "--config", "config.yml"],
-    "indeed": ["reed_crawler/indeed_pipeline.py", "scan", "--config", "config.yml", "--allow-disabled"],
-}
 
 RUNNING = run_record.RUNNING
 DONE = run_record.DONE
