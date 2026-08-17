@@ -76,7 +76,15 @@ Full job descriptions are no longer fetched or exported; the project collects li
 
 ## Cron
 
-An external daily script runs the scan commands above. It is not in this repo, so changes to scan CLI flags or output paths can break it. It inherits the board lock automatically because it calls the same entrypoints.
+The external daily script calls one command and nothing else:
+
+```bash
+.venv/bin/python reed_crawler/scan_all.py --config config.yml
+```
+
+`scan_all.py` reads `boards.<name>.enabled` and runs each enabled board's entrypoint as a subprocess, so enabling or disabling a board is a config edit and never a change to a script outside this repo. It exits 0 when every board succeeded or was already locked (75), and 1 if any board failed.
+
+`COMMANDS` in `scan_all.py` is the single table of how each board is scanned; `dashboard/scans.py` imports it so the button and the cron cannot drift. Do not add `--allow-disabled` to it — that flag is for manual smoke tests and would defeat the config.
 
 ## Agent skills
 
