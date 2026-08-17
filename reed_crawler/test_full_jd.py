@@ -1,3 +1,4 @@
+"""SUNSET. A one-off crawl probe, not a pytest test despite the name. Kept for reference."""
 import asyncio
 from pathlib import Path
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode

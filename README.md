@@ -2,63 +2,49 @@
 
 ![Python version](https://img.shields.io/badge/python-3.11%2B-blue.svg)
 [![Crawl4AI](https://img.shields.io/badge/built%20with-Crawl4AI-6f42c1.svg)](https://github.com/unclecode/crawl4ai)
-![Boards](https://img.shields.io/badge/boards-Reed%20%7C%20Totaljobs%20%7C%20Indeed%20%7C%20Talent.com-success.svg)
+[![FastAPI](https://img.shields.io/badge/dashboard-FastAPI-009485.svg)](https://fastapi.tiangolo.com/)
+![Boards](https://img.shields.io/badge/boards-Reed%20%7C%20Totaljobs%20%7C%20Indeed%20%7C%20Talent.com%20%7C%20Adzuna-success.svg)
 
-> Low-volume job-board discovery pipelines that collect **full job descriptions**, not search-result snippets
+> Watches five UK job boards, keeps track of what appears and disappears, and shows you the difference
 
-Job boards render their listings with JavaScript, rate-limit aggressively, and show you a truncated teaser instead of the actual advert. This project drives a real headless browser through four UK job boards, scores what it finds, then fetches the complete job description for only the best matches — slowly enough that you don't get blocked.
+Job boards render their listings with JavaScript, rate-limit aggressively, and never tell you what changed since yesterday. This drives a real headless browser through Reed, Totaljobs, Indeed and Talent.com — slowly enough not to get blocked — reads Adzuna from its JSON API, then serves a local dashboard over everything it has collected.
 
-Every stage writes plain timestamped JSON to disk, so a run is inspectable, resumable, and diffable.
+Because every scan is kept, the dashboard can answer things a single search cannot: which jobs are new, which have quietly disappeared, how long one has been open, and which you have already dealt with.
 
 ```bash
-# Find jobs
-python reed_crawler/run_reed_scan.py --config config.yml
-
-# Fetch the full advert for the top 10 matches
-python reed_crawler/enrich_full_jds.py --top 10
-
-# Preview what would be exported downstream
-python reed_crawler/export_to_career_ops.py --dry-run
+python -m dashboard          # http://127.0.0.1:8080
 ```
 
 ## Features
 
-- **Four boards, one config.** Reed, Totaljobs, Indeed, and Talent.com, each driven from a single `config.yml`.
-- **Full job descriptions.** Search cards are treated as leads only. The export stage refuses to emit anything that isn't a verified full advert.
-- **Built-in relevance scoring.** Title, seniority, tech-stack, location, and salary signals rank leads so enrichment spends its crawl budget on the top matches.
-- **Slow by design.** Per-board page caps and configurable delays keep request volume low enough to avoid bans.
-- **Resumable stages.** Each stage reads the newest JSON from the previous one, so scan today and enrich tomorrow.
-- **Deduplication.** Within a run by job ID, and across runs by checking the downstream pipeline before re-importing.
-- **Local HTML dashboard.** Every run and every job row in one filterable static page — no server required.
-- **Junk filtering.** Indeed postings matching configured reject phrases ("not represent a live vacancy", "talent pool") are flagged rather than imported.
+- **Five boards, one config.** Reed, Totaljobs, Indeed, Talent.com and Adzuna, all driven from a single `config.yml`.
+- **Job-centric history.** Every job appears once, with when it was first and last seen and how many scans have seen it.
+- **Structured salary.** Free text like `£70k - 85k per year` or `71,250-118,000 Annual` becomes a sortable minimum, maximum and period.
+- **Scan from the browser.** Start a board and watch its output stream live; the scan survives closing the page.
+- **Slow by design.** Per-host request rates are bounded and delays are jittered, so concurrency never costs a board extra traffic.
+- **One scan per board.** A file lock the cron inherits, so a manual scan and a scheduled one cannot collide.
+- **Knows what you've actioned.** Cross-references a downstream workspace, read-only, so you can filter to what is untouched.
+- **Honest failures.** A page that comes back empty is reported as a broken scan, not as a search with no matches.
 
 ## How it works
 
-Each board runs the same stages. Stages communicate only through timestamped JSON files, never in memory, so you can stop after any one of them.
-
 ```
-config.yml
-    │
-    ▼
-┌─────────┐   search result pages     outputs/<board>/raw/*.html,*.md
-│  scan   │──────────────────────▶    outputs/<board>/reports/<board>_raw_<stamp>.json
-└─────────┘   parse → dedupe → score  outputs/<board>/reports/<board>_deduped_<stamp>.json
-    │
-    ▼
-┌─────────┐   top-N job detail pages  outputs/<board>/job_pages/<job_id>.html,.md
-│ enrich  │──────────────────────▶    outputs/<board>/reports/<board>_enriched_full_jd_<stamp>.json
-└─────────┘   sets evidence_level
-    │
-    ▼
-┌─────────┐   full_jd records only    <workspace>/jds/<board>-<id>-<company>-<role>.md
-│ export  │──────────────────────▶    <workspace>/data/pipeline.md
-└─────────┘   skips duplicates
+                    ┌──────────────┐
+   config.yml ─────▶│     scan     │  one lock per board, jittered delays
+                    └──────┬───────┘
+                           │ writes, never overwrites
+                           ▼
+        outputs/<board>/raw/<search>__<stamp>.{md,html}   ← evidence
+        outputs/<board>/reports/<board>_deduped_<stamp>.json
+                           │
+                           │ re-read on every request, no index
+                           ▼
+                    ┌──────────────┐
+                    │  dashboard   │──▶ overview · jobs · runs · CSV
+                    └──────────────┘
 ```
 
-The `evidence_level` field is the gate between discovery and export. It is set to `full_jd` only when the detail-page crawl succeeded **and** yielded more than 500 characters of description text. Everything else stays `search_result_card` — or `rejected` on Indeed, when a reject phrase matched — and is skipped by the export stage.
-
-> [!NOTE]
-> The four board pipelines intentionally duplicate their scoring, dedupe, and browser-config helpers rather than sharing a base class. Each board's markup is quirky in its own way, and keeping them independent means a change to fix Totaljobs can't silently break Reed.
+Nothing is cached and nothing is precomputed. The dashboard reads the same report files the crawler writes, so it cannot disagree with them, and deleting the service loses nothing.
 
 ## Getting started
 
@@ -77,54 +63,32 @@ python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt
 
-# Install and verify the headless browser
-crawl4ai-doctor
-```
-
-Using [uv](https://github.com/astral-sh/uv) instead:
-
-```bash
-uv venv && . .venv/bin/activate
-uv pip install -r requirements.txt
-```
-
-### Configuration
-
-Copy the template and edit it for your own search:
-
-```bash
+crawl4ai-doctor              # installs and verifies the headless browser
 cp config.example.yml config.yml
 ```
 
 `config.yml` is gitignored — it holds your salary targets and locations.
+
+### Configuration
 
 Titles and locations are declared once in named groups, then referenced per board:
 
 ```yaml
 search:
   titles:
-    primary:
-      - senior software engineer
-      - backend developer
+    primary: [senior software engineer, backend developer]
   locations:
-    core:
-      - london
-      - manchester
+    core: [london, manchester]
 
 boards:
   reed:
     enabled: true
+    proxies: []             # egress identities; empty means one crawl at a time
     title_groups: [primary]
     location_groups: [core]
     proximity: 50
-    max_pages_per_run: 8    # search pages per run
-    full_jd:
-      enabled: true
-      top_n: 10             # detail pages per run
-      delay_seconds: 12     # pause between detail crawls
+    max_pages_per_run: 8
 ```
-
-Reed, Totaljobs, and Indeed build their URLs from the `title_groups` × `location_groups` cross product. Talent.com instead takes explicit query params — see [Talent.com](#talentcom) below.
 
 Check what URLs your config produces without crawling anything:
 
@@ -132,93 +96,68 @@ Check what URLs your config produces without crawling anything:
 python reed_crawler/board_config.py
 ```
 
-```
-reed: 8 urls
-  - senior software engineer / london: https://www.reed.co.uk/jobs/senior-software-engineer-jobs-in-london?proximity=50
-  ...
-```
-
 > [!IMPORTANT]
-> The low `max_pages_per_run`, low `top_n`, and multi-second `delay_seconds` defaults are deliberate, not untuned placeholders. Job boards block scrapers that move quickly. Raise these values gradually and expect to get blocked if you don't.
+> The low `max_pages_per_run` and multi-second `delay_seconds` defaults are deliberate. Job boards block scrapers that move quickly. Raise them gradually and expect to be blocked if you don't.
 
-## Usage
-
-### Scanning
-
-Reed splits its stages across three scripts; the other boards use subcommands on a single script.
+## The dashboard
 
 ```bash
-# Reed
-python reed_crawler/run_reed_scan.py --config config.yml
+python -m dashboard              # http://127.0.0.1:8080
+python -m dashboard --reload     # restart on code and template changes
+```
 
-# Totaljobs
-python reed_crawler/totaljobs_pipeline.py scan --config config.yml
+Bound to loopback only, with no host option: it can start scans, so it must not be reachable from the network.
 
-# Talent.com — keep smoke tests to one page
+| Page | What it answers |
+| --- | --- |
+| `/` | How is each board doing, and what shall I scan? |
+| `/jobs` | What is out there, and what have I not looked at? |
+| `/jobs/<board>/<id>` | What is this advert, and how long has it been open? |
+| `/runs` | Did the crawler break? |
+| `/export.csv` | Give me the current filter as a spreadsheet |
+
+Filter jobs by board, by a pay floor, and by whether they have already reached your downstream workspace. Sort by pay, dates, company or how many times a job has been seen.
+
+### Running scans
+
+Scans take minutes, so they run as background subprocesses — exactly the commands the cron runs. Output streams to the browser, and closing the page does not stop the scan.
+
+Scanning all boards runs them concurrently. They are separate hosts, so this costs no board a single extra request: within one host the limit stays at one crawl unless proxies are configured, because rate limits are per IP and splitting by search term changes what you ask for, not how often.
+
+> [!TIP]
+> With one worker per board the pool saturates at the number of enabled boards. It is there for queueing and visibility, not for speed.
+
+## The command line
+
+The dashboard is a convenience; every scan is a plain script.
+
+```bash
+python reed_crawler/scan_all.py --config config.yml [--limit N]   # every enabled board; what the cron runs
+
+python reed_crawler/run_reed_scan.py --config config.yml [--limit N]
+python reed_crawler/totaljobs_pipeline.py scan --config config.yml [--limit N]
 python reed_crawler/talent_pipeline.py scan --config config.yml --limit 1
-
-# Indeed — disabled in config by default
-python reed_crawler/indeed_pipeline.py scan --config config.yml --allow-disabled
+python reed_crawler/indeed_pipeline.py scan --config config.yml [--allow-disabled]
+python reed_crawler/adzuna_pipeline.py scan --config config.yml [--allow-disabled]
 ```
 
-`--limit N` caps the number of search pages for a run, overriding `max_pages_per_run`. Use it for smoke tests.
+`scan_all.py` takes its board list from `boards.<name>.enabled`, so turning a board on or off is a config edit rather than a change to the cron. A single board's script still runs on its own; `--allow-disabled` scans Indeed when the config has it off, for manual smoke tests only.
 
-### Enriching and exporting
-
-```bash
-# Reed
-python reed_crawler/enrich_full_jds.py --top 20
-python reed_crawler/export_to_career_ops.py --dry-run
-
-# Totaljobs, Indeed
-python reed_crawler/totaljobs_pipeline.py enrich --config config.yml --top 5
-python reed_crawler/totaljobs_pipeline.py export --config config.yml --dry-run
-
-# All three stages back to back
-python reed_crawler/totaljobs_pipeline.py run --config config.yml --dry-run
-```
-
-With no `--input`, each stage picks up the newest JSON produced by the previous one, so the commands above chain naturally across separate sessions.
-
-> [!WARNING]
-> `export` writes markdown files and appends to `data/pipeline.md` in an external workspace. Always run it with `--dry-run` first and read the JSON summary it prints.
-
-The export target resolves in this order:
-
-1. The `CAREER_OPS_WORKSPACE` environment variable
-2. `career_ops.workspace` in `config.yml`
-3. A `../career-ops` directory next to this repo
-
-Exported job descriptions are markdown files with YAML frontmatter:
-
-```markdown
----
-source: reed
-source_url: "https://www.reed.co.uk/jobs/senior-software-engineer/12345678"
-company: "Example Ltd"
-role: "Senior Software Engineer"
-salary: "£70,000 - £80,000 per annum"
-evidence_level: full_jd
----
-
-# Senior Software Engineer — Example Ltd
-...
-```
-
-Re-running `export` is safe: a job is skipped when its job ID, source URL, or target filename already appears in the downstream `pipeline.md`.
+`--limit N` caps the search pages for one run. Every scan takes its board's lock, so the cron, a terminal and the dashboard all stay out of each other's way; a scan that finds the board busy exits **75**, and one where no search returned a usable page exits non-zero.
 
 ### Board reference
 
-| Board | Stages | URL strategy | Notes |
-| --- | --- | --- | --- |
-| **Reed** | scan, enrich, export | Slug path + `proximity` | Markdown H2 parsing; the most reliable board |
-| **Totaljobs** | scan, enrich, export, run | Slug path + `radius` | Job links harvested from the crawl link graph |
-| **Indeed** | scan, enrich, export, run | Query params + `radius` | Disabled by default; supports `reject_phrases` |
-| **Talent.com** | scan | Explicit `k` / `l` params | Discovery only; no enrich or export path yet |
+| Board | Parsed from | Notes |
+| --- | --- | --- |
+| **Reed** | Markdown headings | Full field coverage; the most reliable board |
+| **Totaljobs** | Markdown cards | Anchored on the card's `more` line |
+| **Indeed** | HTML | Card links are click wrappers with no job id; the HTML has one |
+| **Talent.com** | Markdown cards | Needs a seed result `id` to hydrate — see below |
+| **Adzuna** | JSON API | Not crawled at all: the site 403s every bot. Needs free API credentials — see below |
 
 ### Talent.com
 
-Talent.com can return an unhydrated shell for `https://uk.talent.com/jobs?k=...&l=...` even when a real browser shows results. Supplying a live result `id` from a browser session forces the list to hydrate:
+Talent.com can return an unhydrated shell for `https://uk.talent.com/jobs?k=...&l=...`. Supplying a live result `id` forces the list to render:
 
 ```yaml
 boards:
@@ -229,65 +168,60 @@ boards:
       - k: Senior Software Engineer
         l: london
         id: "611275213865225891"   # seeds hydration
-      - k: Lead Software Engineer
-        l: london
 ```
 
-Which produces:
+It rate-limits harder than the others; keep the volume low.
 
-```
-https://uk.talent.com/jobs?k=Senior+Software+Engineer&l=london&id=611275213865225891
+### Adzuna
+
+`adzuna.co.uk` sits behind CloudFront, which answers every automated request with a bare 403 — curl and headless Chromium alike, whatever user agent is offered. There is no markup to parse, so this board reads Adzuna's [JSON search API](https://developer.adzuna.com/) instead. Register free, then:
+
+```yaml
+boards:
+  adzuna:
+    enabled: true
+    app_id: "..."          # or export ADZUNA_APP_ID
+    app_key: "..."         # or export ADZUNA_APP_KEY
+    title_groups: [primary]
+    location_groups: [core]
+    distance: 30           # kilometres
+    results_per_page: 50   # the API's maximum
 ```
 
-Talent.com rate-limits harder than the other boards. Keep `max_pages_per_run` at 2 and `delay_seconds` at 60.
+`config.yml` is gitignored, so credentials are safe there; the environment variables win when set. They are attached at request time only, so no capture, report or log line ever contains the key. Pay comes back as numbers rather than as advertiser prose — where `salary_is_predicted` is set, the salary is Adzuna's own estimate and says so.
 
 ## Outputs
 
-All runtime output lands under `outputs/`, which is gitignored:
+Everything runtime lands under `outputs/`, which is gitignored:
 
 ```
-outputs/<board>/raw/        # per-search markdown, HTML, and link captures
-outputs/<board>/reports/    # timestamped JSON for each stage
-outputs/<board>/job_pages/  # full job-description captures
+outputs/<board>/raw/        page captures, one set per run
+outputs/<board>/reports/    timestamped JSON per stage
+outputs/state/locks/        which board is being scanned
+outputs/state/runs.json     scans started from the dashboard
+outputs/state/logs/         their output
 ```
 
-Report filenames follow `<board>_<stage>_<YYYY-MM-DD>_<HHMMSS>.json`. Stage discovery and the dashboard both parse this shape, so don't rename them.
-
-Raw HTML and markdown are kept for every page crawled. When a parser starts returning zero leads — which usually means the board changed its markup — the captures under `raw/` are what you diff to find out why.
-
-### Dashboard
-
-```bash
-python reed_crawler/generate_html_report.py
-open outputs/crawl_runs.html
-```
-
-A single self-contained HTML page listing every run and every job row, filterable by board, evidence level, and free text. Useful for spotting a board that silently stopped returning results.
+Captures carry the run stamp, so scans accumulate rather than overwrite, and a capture can be matched to the report written beside it. When a parser starts returning nothing — usually a board changing its markup — those captures are what you diff.
 
 ## Testing
 
 ```bash
-# Syntax check every module
-python -m py_compile reed_crawler/*.py
-
-# Unit tests — URL generation and Talent.com card parsing, no network required
-python -m pytest
-
-# A single test
-python -m pytest tests/test_talent_pipeline.py::test_talent_markdown_card_parser_extracts_job_metadata
+python -m pytest                          # ~150 tests, no network required
+python -m py_compile reed_crawler/*.py dashboard/*.py
 ```
 
 > [!NOTE]
-> Tests assert against `config.example.yml`, not your personal `config.yml`. If you add a config key, add it to both files.
+> Tests assert against `config.example.yml`, not your personal `config.yml`. Adding a config key means adding it to both.
 
 ## Troubleshooting
 
-**A scan returns zero jobs.** Check the raw capture in `outputs/<board>/raw/` for that search. An HTML file containing a consent wall or a CAPTCHA means you're being blocked — increase `crawl.delay_seconds` and reduce `max_pages_per_run`. Well-formed HTML with results present means the parser needs updating for changed markup.
+**A scan reports `empty-body`.** The fetch succeeded but the page had nothing in it — usually transient, occasionally a block. The capture is still written; check it for a consent wall or a CAPTCHA. If every search in a run does this, the run exits non-zero.
 
-**Enrichment produces `search_result_card` instead of `full_jd`.** The detail page either failed to load or yielded under 500 characters. The `full_jd_status_code` and `full_jd_error` fields in the enriched JSON tell you which, and the full page capture is in `outputs/<board>/job_pages/`.
+**A scan exits 75.** The board is already being scanned, by the cron, a terminal or the dashboard. Nothing is wrong; wait for the other one.
 
-**Export imports nothing.** Either no record reached `full_jd`, or every candidate was already present in the downstream `pipeline.md`. The JSON summary printed by `export` distinguishes the two in its `skipped` list.
+**A board returns zero jobs with a healthy page.** The parser needs updating for changed markup. Diff the newest capture in `outputs/<board>/raw/` against an older one.
 
-**Crawls hang or time out.** Run `crawl4ai-doctor` to confirm the Playwright browser is installed and working. Set `crawl.headless: false` in `config.yml` to watch the browser and see where it stalls.
+**Crawls hang.** Run `crawl4ai-doctor`, then set `crawl.headless: false` to watch the browser and see where it stalls.
 
-The `probe_*.py` scripts at the repo root are standalone single-URL crawls, useful for testing a board's response in isolation without running a full pipeline.
+The `probe_*.py` scripts are standalone single-URL crawls for testing a board in isolation. Modules marked `SUNSET` at the top are kept for reference and are not wired to anything.

@@ -1,3 +1,5 @@
+"""SUNSET. Not wired to anything: nothing produces the full-JD records this exported.
+Kept for reference only — see CLAUDE.md."""
 from __future__ import annotations
 
 import argparse

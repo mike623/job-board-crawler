@@ -4,90 +4,95 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-All scripts run as file paths from the repo root using the venv interpreter (not `python -m`, not installed console scripts):
+Scripts run as file paths from the repo root using the venv interpreter (not `python -m`, no console scripts). The dashboard is the exception — it is a package.
 
 ```bash
 # Setup
 python3 -m venv .venv && . .venv/bin/activate && python -m pip install -r requirements.txt
 crawl4ai-doctor
-cp config.example.yml config.yml   # config.yml is gitignored
+cp config.example.yml config.yml       # config.yml is gitignored
 
-# Validate generated search URLs without crawling (fast sanity check after config/URL-builder edits)
-.venv/bin/python reed_crawler/board_config.py
+# Dashboard
+.venv/bin/python -m dashboard                  # 127.0.0.1:8080
+.venv/bin/python -m dashboard --reload         # dev
 
-# Discovery scans
+# Scans (the dashboard shells out to exactly these)
 .venv/bin/python reed_crawler/run_reed_scan.py --config config.yml [--limit N]
 .venv/bin/python reed_crawler/totaljobs_pipeline.py scan --config config.yml [--limit N]
 .venv/bin/python reed_crawler/talent_pipeline.py scan --config config.yml --limit 1
 .venv/bin/python reed_crawler/haystack_pipeline.py scan --config config.yml [--limit N]
-.venv/bin/python reed_crawler/indeed_pipeline.py scan --config config.yml   # disabled in config; needs explicit enable
+.venv/bin/python reed_crawler/indeed_pipeline.py scan --config config.yml --allow-disabled
+.venv/bin/python reed_crawler/adzuna_pipeline.py scan --config config.yml --allow-disabled
 
-# Enrich + export (Reed uses two separate scripts; other boards use subcommands)
-.venv/bin/python reed_crawler/enrich_full_jds.py --top 20
-.venv/bin/python reed_crawler/export_to_career_ops.py --dry-run
-.venv/bin/python reed_crawler/totaljobs_pipeline.py enrich --config config.yml --top 5
-.venv/bin/python reed_crawler/totaljobs_pipeline.py export --config config.yml --dry-run
-.venv/bin/python reed_crawler/totaljobs_pipeline.py run --config config.yml --dry-run   # scan+enrich+export
-.venv/bin/python reed_crawler/haystack_pipeline.py enrich --config config.yml --top 5
-.venv/bin/python reed_crawler/haystack_pipeline.py export --config config.yml --dry-run
-
-# Dashboard
-.venv/bin/python reed_crawler/generate_html_report.py && open outputs/crawl_runs.html
+# Validate generated URLs without crawling — fast check after config or URL-builder edits
+.venv/bin/python reed_crawler/board_config.py
 
 # Checks
-.venv/bin/python -m py_compile reed_crawler/*.py
 .venv/bin/python -m pytest
-.venv/bin/python -m pytest tests/test_talent_pipeline.py::test_talent_markdown_card_parser_extracts_job_metadata
+.venv/bin/python -m pytest tests/test_salary.py::test_observed_formats
+.venv/bin/python -m py_compile reed_crawler/*.py dashboard/*.py
 ```
-
-`--dry-run` first on any `export`: it writes JD files and `data/pipeline.md` into the downstream workspace, resolved as `CAREER_OPS_WORKSPACE` env var → `career_ops.workspace` in config → `../career-ops` sibling directory.
 
 ## Architecture
 
-Five board pipelines share one shape but are deliberately **not** abstracted into a common base — each board's HTML/markdown quirks live in its own module.
-
-**Stage pipeline (all boards):**
+Two halves. `reed_crawler/` collects listings; `dashboard/` renders them. They share nothing but the files on disk.
 
 ```
-config.yml → build URLs → crawl search pages → parse leads → dedupe → score
-  → outputs/<board>/reports/<board>_raw_<stamp>.json + <board>_deduped_<stamp>.json
-  → enrich (crawl top-N job detail pages) → <board>_enriched_full_jd_<stamp>.json
-  → export → career-ops/jds/*.md + career-ops/data/pipeline.md
+config.yml → scan (per-board lock, jittered delays)
+               ├─ outputs/<board>/raw/<search>__<stamp>.{md,html}
+               └─ outputs/<board>/reports/<board>_deduped_<stamp>.json
+                        │
+                        ▼  re-read per request, no index, no cache
+                  dashboard  → / · /jobs · /jobs/<board>/<id> · /runs · /export.csv
+                             → POST /scan/<board>, /scan-all  (subprocess + SSE)
 ```
 
-Stages communicate **only through timestamped JSON files in `outputs/`**. Each stage's `latest_*()` helper globs `outputs/<board>/reports/` and picks the newest by mtime, so stages can be run days apart or resumed independently. Never change the `<board>_<kind>_<YYYY-MM-DD>_<HHMMSS>.json` filename shape — `generate_html_report.py:parse_report_filename` and every `latest_*()` glob depend on it.
+**Crawler modules.** `board_config.py` builds every board's URLs and owns `run_stamp`, `raw_capture_stem` and `jittered`. `salary.py` and `scan_lock.py` and `scan_health.py` are shared. Each board then has its own parsing: `reed_utils.py` + `run_reed_scan.py`, `totaljobs_pipeline.py`, `talent_pipeline.py`, `indeed_pipeline.py`, `adzuna_pipeline.py`, `haystack_pipeline.py`.
 
-**Module layout:**
+**Adzuna is an API, not a crawl.** `adzuna.co.uk` answers every automated fetch with a CloudFront 403 — curl and headless Chromium alike, any user agent — so `adzuna_pipeline.py` reads Adzuna's free JSON search API instead. No crawl4ai, no browser, no card parsing, and pay arrives as numbers so `salary.py` is not asked to parse it back out of prose. Credentials (free from developer.adzuna.com) live in `boards.adzuna.app_id` / `app_key` or `ADZUNA_APP_ID` / `ADZUNA_APP_KEY`, and are attached at request time so they never reach a raw capture, a report or the log. Raw captures are `.json` here; everything downstream sees the same report shape as any other board.
 
-- `board_config.py` — single source of URL construction for all five boards, plus `load_config`. `build_board_urls(cfg, board)` returns `[{board, title, location, url}]`, respects `enabled`, and truncates to `max_pages_per_run`. Talent uses the `search_params` branch (explicit `k`/`l`/`id`); the other boards use the `title_groups` × `location_groups` cross product.
-- `reed_utils.py` — Reed-only `SearchSpec`/`Job` dataclasses, markdown parsing, dedupe, scoring, report writing. Has its own duplicate `reed_search_url`/`slug_text`; `board_config.py` is the newer canonical copy.
-- `run_reed_scan.py` / `enrich_full_jds.py` / `export_to_career_ops.py` — Reed's three stages, split across three scripts (historical; Reed came first).
-- `totaljobs_pipeline.py`, `indeed_pipeline.py` — single-file pipelines with `scan|enrich|export|run` subcommands.
-- `talent_pipeline.py` — `scan` only; no enrich/export path exists yet.
-- `haystack_pipeline.py` — same `scan|enrich|export|run` shape, but parses cards out of the rendered **HTML** with BeautifulSoup rather than markdown (see Invariants), and applies `reject_phrases` at enrich time the way Indeed does.
-- `generate_html_report.py` — reads every `outputs/{reed,totaljobs,indeed,haystack}/reports/*.json` and renders one filterable static HTML table. Talent is not in its `BOARDS` list.
-- `probe_*.py`, `test_full_jd.py`, `manual_totaljobs_crawl4ai_import.py` — one-off crawl4ai probes and a hardcoded-URL manual importer. Not part of the automated flow; `test_full_jd.py` is a script, not a pytest test.
+**Haystack is HTML, not markdown.** Every other crawled board is parsed from crawl4ai's markdown. haystack.cv is a client-rendered SPA whose markdown runs a card's fields together with no separator, so `haystack_pipeline.py` parses the HTML with BeautifulSoup, anchored on the icon that labels each field (see Invariants). It is a `scan`-only module, like `talent_pipeline.py`.
 
-**Duplicated-by-design code:** `score_lead`/`score_job`, `dedupe`, `slug`, `browser_config`, and `crawl_config` are copy-pasted across the board modules with small per-board variations. When changing scoring or crawl behaviour, decide explicitly whether the change applies to one board or all, and edit each copy.
+**Dashboard modules.** `aggregate.py` is the only place that reads report JSON — jobs, board summaries, runs, filtering and sorting. `pipeline.py` reads the downstream workspace. `scans.py` runs scans as subprocesses and persists their records. `pool.py` bounds concurrency. `app.py` is routes only; `templates/` extends `base.html`.
+
+**Duplicated by design.** `slug`, `dedupe`, `browser_config` and `crawl_config` are copy-pasted across the board modules with per-board variations. Each board's markup is quirky in its own way, and keeping them independent means a fix for Totaljobs cannot break Reed. When changing crawl behaviour, decide explicitly whether it applies to one board or all, and edit each copy.
 
 ## Invariants
 
-- **Evidence level gates the export.** Career-Ops must only ever receive full job descriptions. `evidence_level` is set to `"full_jd"` only when the detail crawl succeeded *and* extracted text exceeds 500 chars (Indeed and Haystack additionally require no `reject_phrases` hit, else `"rejected"` — Haystack syndicates adverts that arrive truncated with "click apply for full job details"). Every `export` skips anything not `full_jd`. Do not loosen this without an explicit instruction — `config.yml:career_ops.import_only_evidence_level` records the boundary.
-- **Slow mode is intentional.** Low `max_pages_per_run`, `top_n`, and multi-second `delay_seconds` values exist to avoid bans, not because they're untuned. Talent.com in particular wants `delay_seconds: 60` and `--limit 1` for smoke tests. Don't raise volumes or parallelise crawls to "speed things up".
-- **Export dedupe is substring matching against `pipeline.md`.** A job is skipped if its `job_id`, `url`, or `local:jds/<file>` path already appears anywhere in the pipeline text. Short/numeric job ids can false-positive.
+Each of these was learned from a bug. Breaking one silently corrupts data or gets a board blocked.
+
+- **Per-host request rate is the safety property, not worker count.** Boards are separate hosts, so scanning them concurrently is free. Within a host the limit is `max(1, len(proxies))` — splitting by search term changes *what* is asked for, not *how often*, because rate limits are per IP. Never let pool size govern this.
+- **Raw captures carry the run stamp.** They were once written to a deterministic name, so each scan destroyed the previous evidence for that search and concurrent scans corrupted each other. `raw_capture_stem` exists for this.
+- **An empty page body is a failure, not zero results.** A crawl can return success with nothing in it. `scan_health` classifies this so a board cannot silently stop producing data.
+- **One scan per board.** The lock lives in the scan entrypoints so the external cron inherits it without being modified. Exit 75 means busy, not broken.
+- **The downstream workspace is read-only.** `dashboard/pipeline.py` only ever reads it. A test asserts nothing under it is modified.
+- **Report filenames are a contract.** `<board>_<stage>_<YYYY-MM-DD>_<HHMMSS>.json`. Stage discovery and every aggregation parse this shape.
 - **Haystack is parsed from HTML, not markdown.** haystack.cv renders a whole card as one link whose text concatenates title, company, location, salary and posted date with no separator, so markdown cannot recover the fields. `parse_search_cards` walks the HTML and anchors each field on the lucide icon that labels it (`lucide-building2` → company, `lucide-map-pin` → location, `lucide-banknote` → salary, `lucide-clock` → posted). The surrounding utility classes are generated and will churn; the icon names are the stable part.
-- **An empty Haystack scan is normal.** Its search backend intermittently answers "Something went wrong loading jobs"; the scan retries once, then records zero leads. Its free-text `q` also matches loosely (a "fullstack" query returns sales roles) and appears to require every term, so multi-word titles return far fewer results than short ones. Pagination is a "Load More" button, so a scan sees only the first ~20 cards per search — deliberate, in keeping with slow mode.
-- **Talent.com needs a seed `id`.** `https://uk.talent.com/jobs?k=...&l=...` can return an unhydrated shell; the first `search_params` entry carries a real result `id` to force hydration. Talent parsing prefers markdown cards (`parse_markdown_cards`) and only falls back to link scraping.
+- **An empty Haystack scan can be the board, not the crawl.** Its search backend intermittently answers "Something went wrong loading jobs" on an otherwise healthy page; the scan retries once and then records zero leads. Its free-text `q` also matches loosely and appears to require every term, so multi-word titles return far fewer results than short ones. Pagination is a "Load More" button, so a scan sees only the first ~20 cards per search.
 
 ## Config
 
-`config.yml` is the single input for every pipeline. Board sections (`boards.<name>`) reference named groups from `search.titles` / `search.locations`. The flat top-level `titles`/`locations`/`proximity`/`max_pages_per_run` keys at the bottom are a legacy fallback path still read by `run_reed_scan.build_specs`; prefer the `boards`/`search` sections in new code.
+`config.yml` is the single input; `config.example.yml` is the committed template and `config.yml` is gitignored. Board sections reference named groups from `search.titles` / `search.locations`. The flat top-level keys at the bottom are a legacy fallback still read by `run_reed_scan.build_specs`.
 
-`config.yml` is gitignored and personal; `config.example.yml` is the committed template. `tests/test_talent_pipeline.py` asserts against **`config.example.yml`** (it expects exactly 2 talent URLs, matching `max_pages_per_run: 2`), so editing the example's talent block or `max_pages_per_run` breaks that test — update both together. Keep the two files structurally in sync when adding config keys.
+`tests/test_talent_pipeline.py` asserts against **`config.example.yml`**, so editing its talent block or `max_pages_per_run` breaks that test — update both together, and keep the two files structurally in sync.
+
+Keys that no longer do anything: every board's `full_jd` block, `career_ops.import_only_evidence_level`, and Indeed's `reject_phrases`, which only ever ran against job-description text.
+
+## Sunset code
+
+Full job descriptions are no longer fetched or exported; the project collects listings. These modules are kept for reference, marked `SUNSET` in their first docstring, and wired to nothing: `enrich_full_jds.py`, `export_to_career_ops.py`, `test_full_jd.py` (a probe, not a test), `manual_totaljobs_crawl4ai_import.py`, and the enrich/export subcommands inside `totaljobs_pipeline.py` and `indeed_pipeline.py`. Do not build on them without checking whether that is intended.
 
 ## Cron
 
-This project is driven from an external daily cron script that runs Reed, Totaljobs, and Talent **scan only** — no enrich, no export. Changes to scan CLI flags or output paths can break that caller, which is not in this repo.
+The external daily script calls one command and nothing else:
+
+```bash
+.venv/bin/python reed_crawler/scan_all.py --config config.yml
+```
+
+`scan_all.py` reads `boards.<name>.enabled` and runs each enabled board's entrypoint as a subprocess, so enabling or disabling a board is a config edit and never a change to a script outside this repo. It exits 0 when every board succeeded or was already locked (75), and 1 if any board failed.
+
+`COMMANDS` in `scan_all.py` is the single table of how each board is scanned; `dashboard/scans.py` imports it so the button and the cron cannot drift. Do not add `--allow-disabled` to it — that flag is for manual smoke tests and would defeat the config.
 
 ## Agent skills
 

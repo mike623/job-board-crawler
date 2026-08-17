@@ -13,8 +13,11 @@ from urllib.parse import urljoin
 import yaml
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
-from board_config import build_board_urls, load_config, raw_capture_stem, run_stamp
+from board_config import build_board_urls, load_config, jittered, raw_capture_stem, run_stamp
 import salary as salary_parser
+import run_record
+import scan_health
+import scan_lock
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "outputs" / "totaljobs"
@@ -38,8 +41,6 @@ class TotaljobsLead:
     url: str
     job_id: str
     raw_block: str
-    score: float = 0.0
-    score_notes: str = ""
     salary_min: int | None = None
     salary_max: int | None = None
     salary_period: str = ""
@@ -55,33 +56,6 @@ def slug(s: str, max_len: int = 80) -> str:
 def totaljobs_job_id(url: str) -> str:
     m = re.search(r"job(\d+)", url)
     return m.group(1) if m else ""
-
-
-def score_lead(job: TotaljobsLead) -> TotaljobsLead:
-    text = " ".join([job.role_title, job.company, job.location, job.contract, job.salary, job.raw_block]).lower()
-    score = 0.0
-    notes = []
-    positives = ["senior", "lead", "principal", "staff", "full stack", "backend", "typescript", "node", "react", "aws", "platform", "architecture", "remote", "hybrid"]
-    negatives = ["junior", "graduate", "apprentice", "placement", "no experience", "wordpress", "php", "onsite only", "salesforce"]
-    for p in positives:
-        if p in text:
-            score += 0.4
-            notes.append(f"+{p}")
-    for n in negatives:
-        if n in text:
-            score -= 0.8
-            notes.append(f"-{n}")
-    # Bonus when the posting actually mentions the location we searched for, or is remote.
-    target = (job.search_location or "").lower().strip()
-    if (target and target in text) or "remote" in text:
-        score += 0.8
-        notes.append("+location")
-    if re.search(r"£\s*(7[0-9]|8[0-9]|9[0-9]|1\d\d)[,k]", text):
-        score += 1.0
-        notes.append("+salary")
-    job.score = round(score, 2)
-    job.score_notes = ", ".join(notes)
-    return job
 
 
 def dedupe(leads: list[TotaljobsLead]) -> list[TotaljobsLead]:
@@ -240,32 +214,37 @@ async def scan_searches(cfg: dict, limit: int | None = None) -> Path:
     if not board.get("enabled"):
         raise SystemExit("Totaljobs is disabled in config.yml")
     RAW.mkdir(parents=True, exist_ok=True)
-    stamp = run_stamp()
-    all_leads: list[TotaljobsLead] = []
-    async with AsyncWebCrawler(config=browser_config(cfg)) as crawler:
-        for spec in specs:
-            print(f"Crawling Totaljobs {spec['title']!r} / {spec['location']!r}: {spec['url']}")
-            result = await crawler.arun(url=spec["url"], config=crawl_config(cfg))
-            md = str(result.markdown or "")
-            html = result.html or ""
-            stem = raw_capture_stem(f"{slug(spec['title'])}__{slug(spec['location'])}", stamp)
-            (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
-            (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
-            leads = parse_result(result, spec)
-            print(f"  status={result.status_code} success={result.success} links={len(leads)}")
-            all_leads.extend(leads)
-            await asyncio.sleep(float((cfg.get("crawl") or {}).get("delay_seconds", 15)))
-    for lead in all_leads:
-        salary_parser.apply_to(lead)
-    deduped = sorted([score_lead(x) for x in dedupe(all_leads)], key=lambda j: j.score, reverse=True)
-    REPORTS.mkdir(parents=True, exist_ok=True)
-    raw_path = REPORTS / f"totaljobs_raw_{stamp}.json"
-    dedup_path = REPORTS / f"totaljobs_deduped_{stamp}.json"
-    raw_path.write_text(json.dumps([x.to_dict() for x in all_leads], indent=2), encoding="utf-8")
-    dedup_path.write_text(json.dumps([x.to_dict() for x in deduped], indent=2), encoding="utf-8")
-    print(f"Totaljobs raw={len(all_leads)} deduped={len(deduped)}")
-    print(f"Deduped JSON: {dedup_path}")
-    return dedup_path
+    with scan_lock.hold("totaljobs"):
+        stamp = run_stamp()
+        with run_record.record("totaljobs", stamp) as findings:
+            health = scan_health.RunHealth("totaljobs")
+            all_leads: list[TotaljobsLead] = []
+            async with AsyncWebCrawler(config=browser_config(cfg)) as crawler:
+                for spec in specs:
+                    print(f"Crawling Totaljobs {spec['title']!r} / {spec['location']!r}: {spec['url']}")
+                    result = await crawler.arun(url=spec["url"], config=crawl_config(cfg))
+                    md = str(result.markdown or "")
+                    html = result.html or ""
+                    stem = raw_capture_stem(f"{slug(spec['title'])}__{slug(spec['location'])}", stamp)
+                    (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
+                    (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
+                    leads = parse_result(result, spec)
+                    print(f"  status={result.status_code} {health.record(result)} leads={len(leads)}")
+                    all_leads.extend(leads)
+                    await asyncio.sleep(jittered(float((cfg.get("crawl") or {}).get("delay_seconds", 15))))
+            for lead in all_leads:
+                salary_parser.apply_to(lead)
+            deduped = sorted(dedupe(all_leads), key=salary_parser.sort_key, reverse=True)
+            REPORTS.mkdir(parents=True, exist_ok=True)
+            raw_path = REPORTS / f"totaljobs_raw_{stamp}.json"
+            dedup_path = REPORTS / f"totaljobs_deduped_{stamp}.json"
+            raw_path.write_text(json.dumps([x.to_dict() for x in all_leads], indent=2), encoding="utf-8")
+            dedup_path.write_text(json.dumps([x.to_dict() for x in deduped], indent=2), encoding="utf-8")
+            print(f"Totaljobs raw={len(all_leads)} deduped={len(deduped)}")
+            findings.update(jobs=len(deduped), searches=len(specs))
+            print(f"Deduped JSON: {dedup_path}")
+            health.finish()
+            return dedup_path
 
 
 def latest_deduped() -> Path:

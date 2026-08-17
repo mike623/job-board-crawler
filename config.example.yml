@@ -29,6 +29,10 @@ search:
 boards:
   reed:
     enabled: true
+    # Egress identities for this board. Empty means one: everything leaves from this
+    # machine's IP, so only one worker may crawl this host at a time. Adding proxies here
+    # raises that limit — splitting by search term does not, since the rate limit is per IP.
+    proxies: []
     title_groups:
       - primary
     location_groups:
@@ -77,20 +81,29 @@ boards:
   haystack:
     # Aggregator (haystack.cv). Results are rendered client-side and its search backend
     # intermittently errors, so an empty scan is normal rather than a bug. Its free-text
-    # search is loose — expect off-target roles that scoring has to filter out. Some
-    # syndicated adverts arrive truncated, hence reject_phrases.
+    # search is loose and appears to require every term, so short titles return far more
+    # than long ones.
     enabled: true
     title_groups:
       - primary
     location_groups:
       - core
     max_pages_per_run: 4
-    full_jd:
-      enabled: true
-      top_n: 5
-      delay_seconds: 20
-    reject_phrases:
-      - click apply for full job details
+
+  adzuna:
+    # Read from Adzuna's JSON API, not by crawling: adzuna.co.uk answers automated fetches
+    # with a CloudFront 403. Credentials are free from developer.adzuna.com; either set them
+    # here (config.yml is gitignored) or export ADZUNA_APP_ID / ADZUNA_APP_KEY.
+    enabled: false
+    app_id: ""
+    app_key: ""
+    title_groups:
+      - primary
+    location_groups:
+      - core
+    distance: 30           # kilometres from the location
+    results_per_page: 50   # the API's maximum
+    max_pages_per_run: 4
 
   talent:
     # Very low-volume Talent.com search-card discovery.

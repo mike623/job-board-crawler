@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
+import random
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode
 
 import yaml
 
@@ -12,6 +14,10 @@ BASE_TOTALJOBS = "https://www.totaljobs.com"
 BASE_INDEED = "https://uk.indeed.com"
 BASE_TALENT = "https://uk.talent.com"
 BASE_HAYSTACK = "https://haystack.cv"
+# Adzuna's own search pages answer any automated fetch with a CloudFront 403, so this board
+# is read from Adzuna's JSON API. Credentials are attached by the pipeline at request time,
+# never here — these URLs are printed, captured and logged.
+BASE_ADZUNA = "https://api.adzuna.com/v1/api/jobs/gb/search"
 
 
 def slug_text(s: str) -> str:
@@ -23,8 +29,12 @@ def load_config(path: str | Path = ROOT / "config.yml") -> dict:
 
 
 def run_stamp() -> str:
-    """One timestamp per scan run, shared by that run's raw captures and its reports."""
-    return datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    """One timestamp per scan run, shared by that run's raw captures, reports and record.
+
+    A caller that needs the identity up front — the dashboard, which redirects to the run's
+    page before the scan has started — passes it down instead.
+    """
+    return os.environ.get("JOB_CRAWLER_RUN_STAMP") or datetime.now().strftime("%Y-%m-%d_%H%M%S")
 
 
 def raw_capture_stem(name: str, stamp: str) -> str:
@@ -67,6 +77,17 @@ def totaljobs_search_url(title: str, location: str, radius: int) -> str:
 
 def indeed_search_url(title: str, location: str, radius: int) -> str:
     return f"{BASE_INDEED}/jobs?q={quote_plus(title)}&l={quote_plus(location)}&radius={radius}"
+
+
+def adzuna_search_url(title: str, location: str, distance: int, results_per_page: int = 50, page: int = 1) -> str:
+    params = urlencode({
+        "what": title,
+        "where": location,
+        "distance": distance,          # kilometres from `where`
+        "results_per_page": results_per_page,
+        "content-type": "application/json",
+    })
+    return f"{BASE_ADZUNA}/{page}?{params}"
 
 
 def talent_search_url(keyword: str, location: str, result_id: str = "") -> str:
@@ -116,11 +137,25 @@ def build_board_urls(cfg: dict, board: str) -> list[dict]:
                 url = talent_search_url(title, location)
             elif board == "haystack":
                 url = haystack_search_url(title, location)
+            elif board == "adzuna":
+                url = adzuna_search_url(title, location, int(board_cfg.get("distance", 30)),
+                                        int(board_cfg.get("results_per_page", 50)))
             else:
                 raise ValueError(f"Unsupported board: {board}")
             rows.append({"board": board, "title": title, "location": location, "url": url})
     max_pages = board_cfg.get("max_pages_per_run")
     return rows[: int(max_pages)] if max_pages else rows
+
+
+def jittered(seconds: float, spread: float = 0.35) -> float:
+    """A delay near `seconds`, varied by up to `spread` either way.
+
+    A perfectly regular cadence is itself a bot signal: humans are irregular. The average rate
+    is unchanged, so this costs nothing against the throttling the delays exist to respect.
+    """
+    if seconds <= 0:
+        return 0.0
+    return seconds * random.uniform(1 - spread, 1 + spread)
 
 
 if __name__ == "__main__":

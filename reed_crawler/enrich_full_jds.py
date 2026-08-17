@@ -1,3 +1,5 @@
+"""SUNSET. Not wired to anything: the project collects listings, and full job descriptions
+are no longer fetched or exported. Kept for reference only — see CLAUDE.md."""
 from __future__ import annotations
 
 import argparse

@@ -10,10 +10,14 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse
 
+from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
-from board_config import build_board_urls, load_config, raw_capture_stem, run_stamp
+from board_config import build_board_urls, load_config, jittered, raw_capture_stem, run_stamp
 import salary as salary_parser
+import run_record
+import scan_health
+import scan_lock
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "outputs" / "indeed"
@@ -37,8 +41,6 @@ class IndeedLead:
     url: str
     job_id: str
     raw_block: str
-    score: float = 0.0
-    score_notes: str = ""
     salary_min: int | None = None
     salary_max: int | None = None
     salary_period: str = ""
@@ -62,28 +64,6 @@ def indeed_job_id(url: str) -> str:
 def canonical_job_url(url: str) -> str:
     jid = indeed_job_id(url)
     return f"https://uk.indeed.com/viewjob?jk={jid}" if jid else url
-
-
-def score_lead(job: IndeedLead) -> IndeedLead:
-    text = " ".join([job.role_title, job.company, job.location, job.contract, job.salary, job.raw_block]).lower()
-    score = 0.0
-    notes = []
-    for p in ["senior", "lead", "principal", "staff", "full stack", "backend", "typescript", "node", "react", "aws", "platform", "architecture", "remote", "hybrid"]:
-        if p in text:
-            score += 0.4
-            notes.append(f"+{p}")
-    for n in ["junior", "graduate", "apprentice", "placement", "no experience", "wordpress", "php", "onsite only", "salesforce"]:
-        if n in text:
-            score -= 0.8
-            notes.append(f"-{n}")
-    # Bonus when the posting actually mentions the location we searched for, or is remote.
-    target = (job.search_location or "").lower().strip()
-    if (target and target in text) or "remote" in text:
-        score += 0.8
-        notes.append("+location")
-    job.score = round(score, 2)
-    job.score_notes = ", ".join(notes)
-    return job
 
 
 def dedupe(leads: list[IndeedLead]) -> list[IndeedLead]:
@@ -125,6 +105,68 @@ def crawl_config(cfg: dict) -> CrawlerRunConfig:
     )
 
 
+# Indeed's search cards live in the HTML, not the markdown: card links are pagead click
+# wrappers carrying no job id, so only 1 of 16 observed cards could be identified from the
+# markdown at all. The HTML carries a data-jk on every card plus semantic test ids.
+CARD_SELECTOR = "div.job_seen_beacon"
+
+# Attribute chips mix employment terms with perks; only the former belong in `contract`.
+CONTRACT_TERMS = ("permanent", "full-time", "part-time", "fixed term", "temporary",
+                  "contract", "apprenticeship", "internship", "graduate", "freelance", "volunteer")
+
+
+def _text(node) -> str:
+    return node.get_text(" ", strip=True) if node else ""
+
+
+def parse_search_cards(html: str, spec: dict) -> list[IndeedLead]:
+    """Parse Indeed's search cards out of the page HTML.
+
+    Everything worth having is behind a stable test id, so this needs none of the positional
+    guessing the other boards require. Indeed shows no posting date on its cards, so `posted`
+    stays empty rather than being invented.
+    """
+    if not html:
+        return []
+    soup = BeautifulSoup(html, "html.parser")
+    leads: list[IndeedLead] = []
+    for card in soup.select(CARD_SELECTOR):
+        anchor = card.select_one("[data-jk]")
+        jid = (anchor or {}).get("data-jk", "") if anchor else ""
+        if not jid:
+            continue
+
+        salary = _text(card.select_one(".salary-snippet-container"))
+        contract = ""
+        for chip in card.select("[data-testid='attribute_snippet_testid']"):
+            label = _text(chip)
+            if label and label != salary and any(t in label.lower() for t in CONTRACT_TERMS):
+                contract = label
+                break
+
+        leads.append(IndeedLead(
+            source="indeed",
+            search_title=spec["title"],
+            search_location=spec["location"],
+            role_title=_text(anchor) or "Unknown role",
+            company=_text(card.select_one("[data-testid='company-name']")),
+            salary=salary,
+            location=_text(card.select_one("[data-testid='text-location']")),
+            contract=contract,
+            posted="",
+            url=canonical_job_url(f"https://uk.indeed.com/viewjob?jk={jid}"),
+            job_id=jid,
+            raw_block=_text(card)[:600],
+        ))
+    return leads
+
+
+def parse_result(result, spec: dict) -> list[IndeedLead]:
+    """Prefer card parsing; fall back to the link graph if the markup is unrecognised."""
+    cards = parse_search_cards(result.html or "", spec)
+    return cards if cards else parse_links(result, spec)
+
+
 def parse_links(result, spec: dict) -> list[IndeedLead]:
     leads = []
     for _, arr in (result.links or {}).items():
@@ -153,32 +195,37 @@ async def scan(cfg: dict, limit: int | None = None, allow_disabled: bool = False
     if limit:
         specs = specs[:limit]
     RAW.mkdir(parents=True, exist_ok=True)
-    stamp = run_stamp()
-    all_leads = []
-    async with AsyncWebCrawler(config=browser_config(cfg)) as crawler:
-        for spec in specs:
-            print(f"Crawling Indeed {spec['title']!r} / {spec['location']!r}: {spec['url']}")
-            r = await crawler.arun(url=spec["url"], config=crawl_config(cfg))
-            md = str(r.markdown or "")
-            html = r.html or ""
-            stem = raw_capture_stem(f"{slug(spec['title'])}__{slug(spec['location'])}", stamp)
-            (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
-            (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
-            leads = parse_links(r, spec)
-            print(f"  status={r.status_code} success={r.success} leads={len(leads)}")
-            all_leads.extend(leads)
-            await asyncio.sleep(float((cfg.get("crawl") or {}).get("delay_seconds", 15)))
-    for lead in all_leads:
-        salary_parser.apply_to(lead)
-    deduped = sorted([score_lead(x) for x in dedupe(all_leads)], key=lambda j: j.score, reverse=True)
-    REPORTS.mkdir(parents=True, exist_ok=True)
-    raw_path = REPORTS / f"indeed_raw_{stamp}.json"
-    dedup_path = REPORTS / f"indeed_deduped_{stamp}.json"
-    raw_path.write_text(json.dumps([x.to_dict() for x in all_leads], indent=2), encoding="utf-8")
-    dedup_path.write_text(json.dumps([x.to_dict() for x in deduped], indent=2), encoding="utf-8")
-    print(f"Indeed raw={len(all_leads)} deduped={len(deduped)}")
-    print(f"Deduped JSON: {dedup_path}")
-    return dedup_path
+    with scan_lock.hold("indeed"):
+        stamp = run_stamp()
+        with run_record.record("indeed", stamp) as findings:
+            health = scan_health.RunHealth("indeed")
+            all_leads = []
+            async with AsyncWebCrawler(config=browser_config(cfg)) as crawler:
+                for spec in specs:
+                    print(f"Crawling Indeed {spec['title']!r} / {spec['location']!r}: {spec['url']}")
+                    r = await crawler.arun(url=spec["url"], config=crawl_config(cfg))
+                    md = str(r.markdown or "")
+                    html = r.html or ""
+                    stem = raw_capture_stem(f"{slug(spec['title'])}__{slug(spec['location'])}", stamp)
+                    (RAW / f"{stem}.md").write_text(md, encoding="utf-8")
+                    (RAW / f"{stem}.html").write_text(html, encoding="utf-8")
+                    leads = parse_result(r, spec)
+                    print(f"  status={r.status_code} {health.record(r)} leads={len(leads)}")
+                    all_leads.extend(leads)
+                    await asyncio.sleep(jittered(float((cfg.get("crawl") or {}).get("delay_seconds", 15))))
+            for lead in all_leads:
+                salary_parser.apply_to(lead)
+            deduped = sorted(dedupe(all_leads), key=salary_parser.sort_key, reverse=True)
+            REPORTS.mkdir(parents=True, exist_ok=True)
+            raw_path = REPORTS / f"indeed_raw_{stamp}.json"
+            dedup_path = REPORTS / f"indeed_deduped_{stamp}.json"
+            raw_path.write_text(json.dumps([x.to_dict() for x in all_leads], indent=2), encoding="utf-8")
+            dedup_path.write_text(json.dumps([x.to_dict() for x in deduped], indent=2), encoding="utf-8")
+            print(f"Indeed raw={len(all_leads)} deduped={len(deduped)}")
+            findings.update(jobs=len(deduped), searches=len(specs))
+            print(f"Deduped JSON: {dedup_path}")
+            health.finish()
+            return dedup_path
 
 
 def latest(pattern: str) -> Path:
