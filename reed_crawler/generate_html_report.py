@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUTS = ROOT / "outputs"
 REPORTS = OUTPUTS / "reports"
 
-BOARDS = ["reed", "totaljobs", "indeed"]
+BOARDS = ["reed", "totaljobs", "indeed", "haystack"]
 
 
 def parse_report_filename(path: Path) -> dict:
@@ -47,7 +47,7 @@ def job_company(job: dict) -> str:
 
 
 def job_id(job: dict, board: str) -> str:
-    return job.get("job_id") or job.get(f"{board}_job_id") or job.get("reed_job_id") or job.get("totaljobs_job_id") or job.get("indeed_job_id") or ""
+    return job.get("job_id") or job.get(f"{board}_job_id") or job.get("reed_job_id") or job.get("totaljobs_job_id") or job.get("indeed_job_id") or job.get("haystack_job_id") or ""
 
 
 def collect_rows() -> tuple[list[dict], dict]:

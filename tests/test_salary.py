@@ -32,6 +32,12 @@ def parsed(text):
     # Single values.
     ("£45,000 per annum", (45000, 45000, "year")),
     ("£450 per day", (450, 450, "day")),
+    # Aggregators suffix the unit instead of spelling the period out.
+    ("£87,000 - £111,000/yr", (87000, 111000, "year")),
+    ("£14 - £16/h", (14, 16, "hour")),
+    ("£90,000/yr", (90000, 90000, "year")),
+    ("£395/d", (395, 395, "day")),
+    ("£3,500/mo", (3500, 3500, "month")),
 ])
 def test_observed_formats(text, expected):
     assert parsed(text) == expected

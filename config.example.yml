@@ -74,6 +74,24 @@ boards:
       - no experience needed
       - training programme
 
+  haystack:
+    # Aggregator (haystack.cv). Results are rendered client-side and its search backend
+    # intermittently errors, so an empty scan is normal rather than a bug. Its free-text
+    # search is loose — expect off-target roles that scoring has to filter out. Some
+    # syndicated adverts arrive truncated, hence reject_phrases.
+    enabled: true
+    title_groups:
+      - primary
+    location_groups:
+      - core
+    max_pages_per_run: 4
+    full_jd:
+      enabled: true
+      top_n: 5
+      delay_seconds: 20
+    reject_phrases:
+      - click apply for full job details
+
   talent:
     # Very low-volume Talent.com search-card discovery.
     # Talent.com can return an unhydrated shell for /jobs?k=...&l=...; supplying a
